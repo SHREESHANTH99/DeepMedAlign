@@ -1,0 +1,15 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+numpy
+pandas
+scikit-learn
+torch
+torchvision
+SimpleITK
+nibabel
+wandb
+voxelmorph
+antspyx
+hd-bet
+pytest
+pre-commit

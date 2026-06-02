@@ -16,4 +16,5 @@ Rule: never commit directly to `main`. Open a PR to `main` at the end of each da
 - Notebook moved to [notebooks/01_explore.ipynb](notebooks/01_explore.ipynb)
 - Core config and helper utilities live in [src/config.py](src/config.py) and [src/utils.py](src/utils.py)
 - Tests pass with `pytest tests/ -v`
-- `make` and `conda` are required for the Day 3 and Day 5 shell commands, but they are not installed in this Windows environment
+- Windows users can run Day 5 with [scripts/setup_env.ps1](scripts/setup_env.ps1) instead of the bash script
+- `make` and `conda` are still required for the original shell workflow, but the Windows path now uses `venv` + pip
