@@ -1,0 +1,7 @@
+experiment_name: r2_placeholder
+seed: 42
+batch_size: 1
+num_workers: 0
+voxel_spacing: [1.0, 1.0, 1.0]
+fixed_shape: [192, 192, 192]
+hu_clip_range: [-1024, 3071]
