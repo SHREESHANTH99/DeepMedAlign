@@ -9,7 +9,7 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate deepmedalign
 
 echo "==> Verifying imports"
-python -c "import torch, SimpleITK, nibabel, voxelmorph, antspyx, wandb; print('  torch:', torch.__version__); print('  SimpleITK:', SimpleITK.Version()); print('  nibabel:', nibabel.__version__); print('  voxelmorph: ok'); print('  wandb:', wandb.__version__)"
+python -c "import torch, SimpleITK, nibabel, voxelmorph, antspyx, wandb, hd_bet; print('  torch:', torch.__version__); print('  SimpleITK:', SimpleITK.Version()); print('  nibabel:', nibabel.__version__); print('  voxelmorph: ok'); print('  antspyx: ok'); print('  wandb:', wandb.__version__); print('  hd_bet: ok')"
 
 echo "==> Running tests"
 pytest tests/ -v --tb=short
