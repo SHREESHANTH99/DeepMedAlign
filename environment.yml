@@ -1,0 +1,23 @@
+name: deepmedalign
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pandas
+  - scikit-learn
+  - pytorch
+  - torchvision
+  - cpuonly
+  - pip:
+      - SimpleITK
+      - nibabel
+      - wandb
+      - voxelmorph
+      - antspyx
+      - hd-bet
+      - pytest
+      - pre-commit
