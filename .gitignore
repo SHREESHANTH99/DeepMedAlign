@@ -15,7 +15,6 @@ results/figures/*
 !results/figures/.gitkeep
 models/*
 !models/.gitkeep
-data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
