@@ -1,46 +1,31 @@
 from pathlib import Path
 
 from src.config import (
-    CONFIGS,
-    DATA,
+    DATA_RAW,
+    DATA_PROC,
     DOCS,
     FIXED_SHAPE,
-    FIGURES,
-    HU_CLIP_RANGE,
+    CT_HU_CLIP,
+    CT_HU_BRAIN,
     LOGS,
-    MODELS,
-    PAPER_NOTES,
-    PROCESSED,
-    RAW,
+    MODELS_DIR,
     RESULTS,
     ROOT,
     SCRIPTS,
     SYNTHRAD,
-    TESTS,
     VOXEL_SPACING,
-    ensure_project_dirs,
 )
-
-
-# Ensure directories exist for tests; directory creation is explicit now
-ensure_project_dirs()
 
 
 def test_all_dirs_created():
     for directory in (
-        DATA,
-        RAW,
-        PROCESSED,
-        SYNTHRAD,
-        MODELS,
+        DATA_RAW,
+        DATA_PROC,
+        MODELS_DIR,
         RESULTS,
-        FIGURES,
         LOGS,
         DOCS,
-        PAPER_NOTES,
-        CONFIGS,
         SCRIPTS,
-        TESTS,
     ):
         assert directory.exists()
         assert directory.is_dir()
@@ -51,7 +36,8 @@ def test_constants_correct_types():
     assert isinstance(SYNTHRAD, Path)
     assert isinstance(VOXEL_SPACING, tuple)
     assert isinstance(FIXED_SHAPE, tuple)
-    assert isinstance(HU_CLIP_RANGE, tuple)
+    assert isinstance(CT_HU_CLIP, tuple)
+    assert isinstance(CT_HU_BRAIN, tuple)
 
 
 def test_voxel_spacing_values():
@@ -64,8 +50,8 @@ def test_fixed_shape_values():
     assert all(isinstance(value, int) and value > 0 for value in FIXED_SHAPE)
 
 
-def test_hu_clip_range():
-    low, high = HU_CLIP_RANGE
+def test_ct_hu_clip_range():
+    low, high = CT_HU_CLIP
     assert low < high
 
 
