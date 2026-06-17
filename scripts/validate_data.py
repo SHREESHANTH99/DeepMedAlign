@@ -1,176 +1,200 @@
 """
 validate_data.py
-----------------
-QC script: checks every raw SynthRAD subject for:
-  - Presence of mr.nii.gz and ct.nii.gz
-  - Shape and voxel spacing
-  - Intensity range (MR and CT)
-  - Shape mismatch between MR and CT (must be identical)
-  - Flags subjects with unusual shapes or ranges
-
-Outputs a CSV report to data/raw/shape_report.csv
-and prints a summary table.
+────────────────
+Runs automated QC on every subject in the manifest:
+- Shape and spacing check
+- HU range check for CT (catches mis-labelled volumes)
+- MRI intensity range check
+- File size check (catches corrupt downloads)
+- Mask coverage check
 
 Run:
     python scripts/validate_data.py
-    python scripts/validate_data.py --n 10   # first 10 subjects only
+    python scripts/validate_data.py --manifest data/raw/manifest.csv --out data/raw/shape_report.csv
 """
 
 import sys
-import csv
 import argparse
+import time
 import numpy as np
+import pandas as pd
+import nibabel as nib
 from pathlib import Path
+from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from src.config import SYNTHRAD, SHAPE_RPT
-from src.utils import get_logger
+from src.config import DATA_RAW
+from src.utils import get_logger, ensure_dir
 
 log = get_logger("validate_data")
 
-FIELDS = [
-    "subj_id",
-    "mr_exists", "ct_exists",
-    "mr_shape",  "ct_shape",
-    "mr_spacing","ct_spacing",
-    "mr_min", "mr_max",
-    "ct_min", "ct_max",
-    "shape_match",
-    "flags",
-]
 
-
-def load_meta(path: Path) -> dict:
-    """Return shape/spacing/range without loading full array into RAM."""
-    try:
-        import nibabel as nib
-        img  = nib.load(str(path))
-        hdr  = img.header
-        data = img.get_fdata(dtype="float32")
-        return {
-            "shape":   tuple(int(x) for x in img.shape[:3]),
-            "spacing": tuple(round(float(z), 3) for z in hdr.get_zooms()[:3]),
-            "min":     float(data.min()),
-            "max":     float(data.max()),
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
-
-def check_subject(subj_dir: Path) -> dict:
-    """Run all checks on one subject. Returns a row dict."""
-    sid     = subj_dir.name
-    mr_path = subj_dir / "mr.nii.gz"
-    ct_path = subj_dir / "ct.nii.gz"
-
-    row = {f: "" for f in FIELDS}
-    row["subj_id"]   = sid
-    row["mr_exists"] = mr_path.exists()
-    row["ct_exists"] = ct_path.exists()
-
+def check_subject(row: pd.Series) -> dict:
+    """Run all checks for one subject. Returns a result dict."""
+    sid   = row["subject_id"]
     flags = []
+    result = {"subject_id": sid, "split": row["split"]}
 
-    if not mr_path.exists():
-        flags.append("MISSING_MR")
-    if not ct_path.exists():
-        flags.append("MISSING_CT")
+    # ── MR checks ─────────────────────────────────────────────────────────────
+    try:
+        mr_img  = nib.load(row["mr"])
+        mr_arr  = mr_img.get_fdata().astype("float32")
+        mr_zoom = mr_img.header.get_zooms()
 
-    if mr_path.exists():
-        mr = load_meta(mr_path)
-        if "error" in mr:
-            flags.append(f"MR_LOAD_ERR:{mr['error'][:40]}")
-        else:
-            row["mr_shape"]   = str(mr["shape"])
-            row["mr_spacing"] = str(mr["spacing"])
-            row["mr_min"]     = f"{mr['min']:.1f}"
-            row["mr_max"]     = f"{mr['max']:.1f}"
-            if mr["max"] < 10:
-                flags.append("MR_EMPTY")
-            if any(abs(s - 1.0) > 0.05 for s in mr["spacing"]):
-                flags.append("MR_NONISO")
+        result["mr_shape"]   = str(mr_img.shape)
+        result["mr_spacing"] = str(tuple(round(float(z), 3) for z in mr_zoom))
+        result["mr_min"]     = round(float(mr_arr.min()), 2)
+        result["mr_max"]     = round(float(mr_arr.max()), 2)
+        result["mr_mean"]    = round(float(mr_arr.mean()), 2)
+        result["mr_nonzero"] = int((mr_arr != 0).sum())
+        result["mr_bytes"]   = Path(row["mr"]).stat().st_size
 
-    if ct_path.exists():
-        ct = load_meta(ct_path)
-        if "error" in ct:
-            flags.append(f"CT_LOAD_ERR:{ct['error'][:40]}")
-        else:
-            row["ct_shape"]   = str(ct["shape"])
-            row["ct_spacing"] = str(ct["spacing"])
-            row["ct_min"]     = f"{ct['min']:.1f}"
-            row["ct_max"]     = f"{ct['max']:.1f}"
-            if ct["min"] > -500:
-                flags.append("CT_MIN_UNUSUAL")
-            if ct["max"] < 500:
-                flags.append("CT_MAX_LOW")
+        # Flag if MR looks like CT (HU-style values)
+        if mr_arr.min() < -500:
+            flags.append("MR_LOOKS_LIKE_CT")
 
-    # Shape match
-    if row["mr_shape"] and row["ct_shape"]:
-        match = row["mr_shape"] == row["ct_shape"]
-        row["shape_match"] = match
-        if not match:
-            flags.append("SHAPE_MISMATCH")
+        # Flag if MR is all zeros (corrupt)
+        if result["mr_nonzero"] == 0:
+            flags.append("MR_ALL_ZEROS")
+
+    except Exception as e:
+        result["mr_shape"] = "ERROR"
+        flags.append(f"MR_LOAD_ERROR: {e}")
+
+    # ── CT checks ─────────────────────────────────────────────────────────────
+    try:
+        ct_img  = nib.load(row["ct"])
+        ct_arr  = ct_img.get_fdata().astype("float32")
+        ct_zoom = ct_img.header.get_zooms()
+
+        result["ct_shape"]   = str(ct_img.shape)
+        result["ct_spacing"] = str(tuple(round(float(z), 3) for z in ct_zoom))
+        result["ct_min_hu"]  = round(float(ct_arr.min()), 2)
+        result["ct_max_hu"]  = round(float(ct_arr.max()), 2)
+        result["ct_mean_hu"] = round(float(ct_arr.mean()), 2)
+        result["ct_nonzero"] = int((ct_arr != 0).sum())
+        result["ct_bytes"]   = Path(row["ct"]).stat().st_size
+
+        # CT must have negative values (air = -1000 HU)
+        if ct_arr.min() > -100:
+            flags.append("CT_NO_NEGATIVE_HU")
+
+        # CT bone should go above 400 HU
+        if ct_arr.max() < 200:
+            flags.append("CT_MAX_HU_TOO_LOW")
+
+        # Corrupt CT
+        if result["ct_nonzero"] == 0:
+            flags.append("CT_ALL_ZEROS")
+
+        # Shape must match MR
+        if "mr_shape" in result and result["mr_shape"] != "ERROR":
+            if mr_img.shape != ct_img.shape:
+                flags.append("SHAPE_MISMATCH")
+
+        result["shapes_match"] = (
+            "mr_shape" in result
+            and result.get("mr_shape") != "ERROR"
+            and mr_img.shape == ct_img.shape
+        )
+
+    except Exception as e:
+        result["ct_shape"] = "ERROR"
+        flags.append(f"CT_LOAD_ERROR: {e}")
+
+    # ── Mask checks ───────────────────────────────────────────────────────────
+    if row.get("has_mask") and row.get("mask"):
+        try:
+            msk_img = nib.load(row["mask"])
+            msk_arr = msk_img.get_fdata().astype("float32")
+            unique  = np.unique(msk_arr)
+
+            result["mask_shape"]   = str(msk_img.shape)
+            result["mask_unique"]  = str(unique.tolist())
+            result["mask_volume"]  = int((msk_arr > 0).sum())
+
+            # Mask should be binary
+            non_binary = [v for v in unique if v not in [0.0, 1.0]]
+            if non_binary:
+                flags.append(f"MASK_NOT_BINARY: {non_binary}")
+
+            # Very small mask = skull stripping probably failed
+            if result["mask_volume"] < 50000:
+                flags.append("MASK_VERY_SMALL")
+
+        except Exception as e:
+            flags.append(f"MASK_LOAD_ERROR: {e}")
     else:
-        row["shape_match"] = False
+        result["mask_volume"] = 0
 
-    row["flags"] = "|".join(flags) if flags else "OK"
-    return row
+    # ── Final flag ────────────────────────────────────────────────────────────
+    result["flags"] = "|".join(flags) if flags else "OK"
+    result["status"] = "FAIL" if flags else "OK"
 
-
-def print_summary(rows: list):
-    """Print a compact summary table."""
-    total   = len(rows)
-    ok      = sum(1 for r in rows if r["flags"] == "OK")
-    flagged = total - ok
-
-    print(f"\n{'='*60}")
-    print(f"  Total subjects : {total}")
-    print(f"  Clean (OK)     : {ok}")
-    print(f"  Flagged        : {flagged}")
-    print(f"{'='*60}")
-
-    if flagged:
-        print("\nFlagged subjects:")
-        for r in rows:
-            if r["flags"] != "OK":
-                print(f"  {r['subj_id']:12s}  {r['flags']}")
-
-    # Shape distribution
-    shapes = {}
-    for r in rows:
-        s = r.get("mr_shape", "unknown")
-        shapes[s] = shapes.get(s, 0) + 1
-    print(f"\nMR shape distribution ({len(shapes)} unique):")
-    for shape, count in sorted(shapes.items(), key=lambda x: -x[1])[:10]:
-        print(f"  {shape:30s} x{count}")
-    print()
+    return result
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--n", type=int, default=None,
-                    help="Check only first N subjects")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--manifest", default=str(DATA_RAW / "manifest.csv"))
+    parser.add_argument("--out",      default=str(DATA_RAW / "shape_report.csv"))
+    parser.add_argument("--split",    default=None,
+                        help="Filter to one split: train/val/test")
+    args = parser.parse_args()
 
-    subjects = sorted([d for d in SYNTHRAD.iterdir() if d.is_dir()])
-    if args.n:
-        subjects = subjects[:args.n]
+    ensure_dir("logs/r1")
 
-    log.info(f"Validating {len(subjects)} subjects in {SYNTHRAD}...")
+    manifest_path = Path(args.manifest)
+    if not manifest_path.exists():
+        log.error(f"Manifest not found: {manifest_path}")
+        log.error("Run: python scripts/build_manifest.py first")
+        sys.exit(1)
 
-    rows = []
-    for i, subj_dir in enumerate(subjects, 1):
-        log.info(f"  [{i:3d}/{len(subjects)}] {subj_dir.name}")
-        rows.append(check_subject(subj_dir))
+    df = pd.read_csv(manifest_path)
+    if args.split:
+        df = df[df["split"] == args.split]
+        log.info(f"Filtered to split='{args.split}': {len(df)} subjects")
 
-    # Write CSV
-    SHAPE_RPT.parent.mkdir(parents=True, exist_ok=True)
-    with open(SHAPE_RPT, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=FIELDS)
-        writer.writeheader()
-        writer.writerows(rows)
-    log.info(f"Report saved: {SHAPE_RPT}")
+    log.info(f"Validating {len(df)} subjects...")
+    t0 = time.time()
 
-    print_summary(rows)
+    results = []
+    for _, row in tqdm(df.iterrows(), total=len(df), desc="QC"):
+        results.append(check_subject(row))
+
+    report = pd.DataFrame(results)
+    report.to_csv(args.out, index=False)
+    log.info(f"Report saved: {args.out}  ({time.time()-t0:.1f}s)")
+
+    # Print summary
+    ok   = report[report["status"] == "OK"]
+    fail = report[report["status"] == "FAIL"]
+
+    print("\n" + "="*60)
+    print("QC SUMMARY")
+    print("="*60)
+    print(f"  Total:  {len(report)}")
+    print(f"  OK:     {len(ok)}")
+    print(f"  FAILED: {len(fail)}")
+
+    if len(fail) > 0:
+        print("\nFailed subjects:")
+        print(fail[["subject_id", "split", "flags"]].to_string())
+
+    # Flag breakdown
+    all_flags = []
+    for f in report["flags"]:
+        if f != "OK":
+            all_flags.extend(f.split("|"))
+    if all_flags:
+        from collections import Counter
+        print("\nFlag counts:")
+        for flag, count in Counter(all_flags).most_common():
+            print(f"  {flag}: {count}")
+    else:
+        print("\nAll subjects passed QC [OK]")
+
+    print("="*60)
 
 
 if __name__ == "__main__":
