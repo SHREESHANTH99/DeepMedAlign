@@ -51,9 +51,23 @@ B-spline evaluated on **125 training subjects only** (train split).
 - **Subjects:** 180 total — 125 train / 19 val / 36 test
 - **Resolution:** 160 × 192 × 160 @ 1 mm isotropic
 - **Modalities:** T1-weighted MRI + Planning CT (Hounsfield Units)
-- **Formats:** NIfTI (`.nii.gz`) for registration · NumPy (`.npy`) for fast deep learning loading
 
 > ⚠️ Raw data (~15 GB) is **not tracked in git**. Download from SynthRad and place under `data/raw/synthrad/brain/`.
+
+### 🧊 3D Image Format — NIfTI vs NumPy
+
+Each brain scan in this project is a **true 3D image** (not a flat photo). It is a cube of **160 × 192 × 160 = ~4.9 million voxels** (3D pixels), where every voxel stores an intensity value at a specific (x, y, z) coordinate in the brain.
+
+We use two formats depending on the task:
+
+| Format | Extension | What it stores | Load time | Used for |
+|--------|-----------|---------------|-----------|----------|
+| **NIfTI** | `.nii.gz` | 3D image + spatial metadata (voxel size, orientation, affine matrix) | ~2 sec per scan | Classical registration (SimpleITK needs metadata) |
+| **NumPy** | `.npy` | Raw 3D float32 array (pixel values only, no metadata) | ~0.01 sec per scan | Deep learning training (PyTorch reads arrays directly) |
+
+**Why we convert NIfTI → NumPy for Week 3:**
+
+During neural network training, the AI looks at each brain scan hundreds of times (once per training epoch). At 2 seconds per load × 125 scans × 100 epochs = **~7 hours just loading files**. After converting to `.npy`, the same operation takes **~13 minutes**. The conversion is done once by `scripts/build_npy_cache.py` and stored in `data/processed/<subject_id>/`.
 
 ---
 
@@ -164,6 +178,62 @@ Registration quality is measured and minimised using three metrics:
 
 In **classical registration**, these metrics are minimised iteratively by a mathematical optimiser.  
 In **Week 3 VoxelMorph**, NCC becomes the **training loss function** — the neural network learns to minimise it automatically through backpropagation.
+
+---
+
+## 📐 Formulas Used
+
+### 1. Normalized Cross-Correlation (NCC) — Primary Cost Function
+
+Measures how similar the intensity patterns of the MRI and registered CT are:
+
+```
+         Σ [ (I(x) - μ_I) · (J(x) - μ_J) ]
+NCC  =  ─────────────────────────────────────
+            √[ Σ(I(x) - μ_I)² · Σ(J(x) - μ_J)² ]
+```
+
+Where:
+- `I(x)` = MRI intensity at voxel x
+- `J(x)` = CT intensity at voxel x (after warping)
+- `μ_I`, `μ_J` = mean intensities of MRI and CT
+- Range: −1 (perfectly anti-correlated) to +1 (perfectly correlated)
+- **Goal:** Maximise NCC (minimise −NCC as the loss)
+
+---
+
+### 2. Dice Similarity Coefficient — Overlap Metric
+
+Measures how well the brain masks overlap after registration:
+
+```
+        2 · |A ∩ B|
+Dice = ─────────────
+          |A| + |B|
+```
+
+Where:
+- `A` = brain mask voxels from MRI
+- `B` = brain mask voxels from registered CT
+- `|A ∩ B|` = number of voxels where both masks are 1
+- Range: 0.0 (no overlap) to 1.0 (perfect overlap)
+- **Goal:** Dice > 0.776 (beat the B-spline baseline)
+
+---
+
+### 3. Hausdorff Distance 95th Percentile (HD95) — Boundary Error
+
+Measures the worst-case misalignment between brain boundaries (ignoring the top 5% of outliers):
+
+```
+HD95(A, B) = max( P95{ min dist(a, B) }, P95{ min dist(b, A) } )
+```
+
+Where:
+- `dist(a, B)` = shortest distance from boundary point `a` in A to any boundary point in B
+- `P95` = 95th percentile (ignores the 5% worst outliers)
+- Unit: millimetres
+- **Goal:** HD95 < 19.2 mm (beat the B-spline baseline)
 
 ---
 
