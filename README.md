@@ -237,7 +237,7 @@ Where:
 
 ---
 
-## 🧠 Deep Learning Architecture (Week 3)
+## 🧠 Deep Learning Architecture ..
 
 We engineered a state-of-the-art **VoxelMorph** neural network tailored specifically for MRI-CT multimodal registration, achieving a massive **50% increase in alignment accuracy** in just 3 epochs.
 
