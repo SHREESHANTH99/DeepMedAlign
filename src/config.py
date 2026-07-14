@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Root paths
@@ -49,7 +49,7 @@ CT_HU_BRAIN     = (-15.0, 80.0)
 LR              = 3e-4
 EPOCHS          = 1500
 BATCH_SIZE      = 1
-LAMBDA_SMOOTH   = 0.5
+LAMBDA_SMOOTH   = 0.2
 LAMBDA_MI       = 1.0
 
 # ---------------------------------------------------------------------------

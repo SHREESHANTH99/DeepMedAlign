@@ -161,6 +161,68 @@ class RandomAffinePerturbation:
         return sample
 
 
+class RandomElasticDeformation:
+    """Apply random elastic deformation to MRI, CT, and mask consistently.
+
+    Generates a smooth random displacement field using Gaussian-filtered
+    noise. This forces the AI to learn to un-warp severely deformed brains,
+    making it much better at aligning real-world variations.
+
+    Parameters
+    ----------
+    alpha : controls deformation strength (default 300.0)
+    sigma : controls deformation smoothness (default 20.0, higher = smoother)
+    p     : probability of applying (default 0.3)
+    """
+
+    def __init__(self, alpha: float = 300.0, sigma: float = 20.0, p: float = 0.3) -> None:
+        self.alpha = alpha
+        self.sigma = sigma
+        self.p     = p
+
+    def __call__(self, sample: Sample) -> Sample:
+        if random.random() >= self.p:
+            return sample
+
+        try:
+            from scipy.ndimage import gaussian_filter, map_coordinates
+
+            # Use MRI shape to build the displacement field
+            ref = sample["mr"].numpy()[0]   # (D, H, W)
+            shape = ref.shape
+
+            # One shared random displacement field for all axes
+            dx = gaussian_filter(np.random.randn(*shape), self.sigma) * self.alpha
+            dy = gaussian_filter(np.random.randn(*shape), self.sigma) * self.alpha
+            dz = gaussian_filter(np.random.randn(*shape), self.sigma) * self.alpha
+
+            z, y, x = np.meshgrid(
+                np.arange(shape[0]),
+                np.arange(shape[1]),
+                np.arange(shape[2]),
+                indexing="ij",
+            )
+            indices = (
+                np.clip(z + dz, 0, shape[0] - 1).ravel(),
+                np.clip(y + dy, 0, shape[1] - 1).ravel(),
+                np.clip(x + dx, 0, shape[2] - 1).ravel(),
+            )
+
+            for key in ("mr", "ct", "mask"):
+                if key not in sample or not torch.is_tensor(sample[key]):
+                    continue
+                arr   = sample[key].numpy()[0]
+                order = 0 if key == "mask" else 1
+                warped = map_coordinates(arr, indices, order=order, mode="reflect")
+                warped = np.clip(warped.reshape(shape), 0.0, 1.0).astype("float32")
+                sample[key] = torch.from_numpy(warped).unsqueeze(0)
+
+        except ImportError:
+            pass   # scipy not available — skip silently
+
+        return sample
+
+
 # ---------------------------------------------------------------------------
 # Compose
 # ---------------------------------------------------------------------------
@@ -192,16 +254,18 @@ def get_train_transforms(
     flip:    bool = True,
     jitter:  bool = True,
     noise:   bool = True,
-    affine:  bool = False,   # off by default — expensive, enable for final run
+    affine:  bool = False,
+    elastic: bool = False,
 ) -> Compose:
     """Return the full augmentation pipeline for the train split.
 
     Parameters
     ----------
-    flip   : include random left-right flip
-    jitter : include random MRI intensity jitter
-    noise  : include random Gaussian noise on MRI
-    affine : include random affine perturbation (needs scipy)
+    flip    : include random left-right flip
+    jitter  : include random MRI intensity jitter
+    noise   : include random Gaussian noise on MRI
+    affine  : include random affine perturbation (needs scipy)
+    elastic : include random elastic deformation (needs scipy)
     """
     transforms = []
     if flip:
@@ -213,9 +277,13 @@ def get_train_transforms(
     if affine:
         transforms.append(RandomAffinePerturbation(
             max_angle_deg=5.0, max_shift_px=5, p=0.3))
+    if elastic:
+        transforms.append(RandomElasticDeformation(
+            alpha=300.0, sigma=20.0, p=0.3))
     return Compose(transforms)
 
 
 def get_val_transforms() -> Compose:
     """Return the identity transform for val/test splits (no augmentation)."""
     return Compose([])
+
