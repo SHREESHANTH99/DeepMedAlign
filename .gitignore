@@ -14,6 +14,11 @@ logs/*
 results/figures/*
 !results/figures/.gitkeep
 !results/figures/difference_maps/
+!results/figures/training_dashboard.png
+!results/figures/lr_schedule.png
+!results/figures/val_ncc.png
+!results/figures/methods_comparison.png
+!results/figures/voxelmorph_diffmap.png
 models/*
 !models/.gitkeep
 data/*
