@@ -30,7 +30,7 @@ import torch.optim as optim
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.config           import MODELS, RESULTS, EPOCHS, LR, LAMBDA_SMOOTH
-from src.voxelmorph_model import VoxelMorph
+from src.voxelmorph_model import VoxelMorph, SpatialTransformer
 from src.losses           import total_loss
 from src.dataloader       import get_dataloaders
 from src.metrics          import normalised_cross_correlation as ncc
@@ -45,19 +45,25 @@ def get_device(requested: str = "auto") -> torch.device:
     return torch.device(requested)
 
 
-def train_one_epoch(model, loader, optimizer, scaler, device, lambda_reg, sigma):
+def train_one_epoch(model, loader, optimizer, scaler, device, lambda_reg, sigma,
+                    mask_tf=None, lambda_dice=1.0, lambda_jacobian=1.0):
     model.train()
-    total = mi_sum = reg_sum = 0.0
+    total = mi_sum = reg_sum = dice_sum = jac_sum = 0.0
     n = 0
 
     for batch in loader:
-        mr = batch["mr"].to(device)   # (1, 1, D, H, W)
-        ct = batch["ct"].to(device)
+        mr   = batch["mr"].to(device)
+        ct   = batch["ct"].to(device)
+        mask = batch["mask"].to(device) if mask_tf else None
 
         optimizer.zero_grad()
         with torch.cuda.amp.autocast(enabled=scaler is not None):
             warped_ct, dvf = model(mr, ct)
-            loss, losses   = total_loss(warped_ct, mr, dvf, lambda_reg, sigma)
+            w_mask = mask_tf(mask.float(), dvf) if mask_tf else None
+            loss, losses = total_loss(warped_ct, mr, dvf, lambda_reg, sigma,
+                                      warped_mask=w_mask, target_mask=mask,
+                                      lambda_dice=lambda_dice,
+                                      lambda_jacobian=lambda_jacobian)
 
         if scaler is not None:
             scaler.scale(loss).backward()
@@ -70,46 +76,54 @@ def train_one_epoch(model, loader, optimizer, scaler, device, lambda_reg, sigma)
         total    += losses["total"]
         mi_sum   += losses["mi"]
         reg_sum  += losses["reg"]
+        jac_sum  += losses.get("jac_loss", 0.0)
+        dice_sum += losses.get("dice_loss", 0.0)
         n        += 1
 
-    return {
-        "train_loss": total   / max(n, 1),
-        "train_mi":   mi_sum  / max(n, 1),
-        "train_reg":  reg_sum / max(n, 1),
-    }
+    avg = {"train_loss": total/max(n,1), "train_mi": mi_sum/max(n,1),
+           "train_reg": reg_sum/max(n,1), "train_jac_loss": jac_sum/max(n,1)}
+    if mask_tf:
+        avg["train_dice_loss"] = dice_sum / max(n, 1)
+    return avg
 
 
 @torch.no_grad()
-def validate(model, loader, device, lambda_reg, sigma):
+def validate(model, loader, device, lambda_reg, sigma, mask_tf=None, lambda_dice=1.0, lambda_jacobian=1.0):
     model.eval()
-    total = mi_sum = reg_sum = ncc_sum = 0.0
+    total = mi_sum = reg_sum = ncc_sum = dice_sum = jac_sum = 0.0
     n = 0
 
     for batch in loader:
         mr   = batch["mr"].to(device)
         ct   = batch["ct"].to(device)
+        mask = batch["mask"].to(device) if mask_tf else None
 
         with torch.cuda.amp.autocast():
             warped_ct, dvf = model(mr, ct)
-            loss, losses   = total_loss(warped_ct, mr, dvf, lambda_reg, sigma)
+            w_mask = mask_tf(mask.float(), dvf) if mask_tf else None
+            loss, losses = total_loss(warped_ct, mr, dvf, lambda_reg, sigma,
+                                      warped_mask=w_mask, target_mask=mask,
+                                      lambda_dice=lambda_dice,
+                                      lambda_jacobian=lambda_jacobian)
 
         ncc_val = ncc(
             mr[0, 0].cpu().numpy(),
             warped_ct[0, 0].cpu().numpy(),
         )
 
-        total   += losses["total"]
-        mi_sum  += losses["mi"]
-        reg_sum += losses["reg"]
-        ncc_sum += ncc_val
-        n       += 1
+        total    += losses["total"]
+        mi_sum   += losses["mi"]
+        reg_sum  += losses["reg"]
+        jac_sum  += losses.get("jac_loss", 0.0)
+        dice_sum += losses.get("dice_loss", 0.0)
+        ncc_sum  += ncc_val
+        n        += 1
 
-    return {
-        "val_loss": total   / max(n, 1),
-        "val_mi":   mi_sum  / max(n, 1),
-        "val_reg":  reg_sum / max(n, 1),
-        "val_ncc":  ncc_sum / max(n, 1),
-    }
+    avg = {"val_loss": total/max(n,1), "val_mi": mi_sum/max(n,1),
+           "val_reg": reg_sum/max(n,1), "val_jac_loss": jac_sum/max(n,1), "val_ncc": ncc_sum/max(n,1)}
+    if mask_tf:
+        avg["val_dice_loss"] = dice_sum / max(n, 1)
+    return avg
 
 
 def save_checkpoint(model, optimizer, epoch, val_loss, path):
@@ -146,6 +160,14 @@ def main():
     # Method 3: Elastic Augmentation — forces learning of complex deformations
     ap.add_argument("--elastic", action="store_true",
                     help="Add random elastic deformation to training augmentation")
+    ap.add_argument("--lambda-dice", type=float, default=1.0, dest="lambda_dice",
+                    help="Weight for soft Dice mask loss (default 1.0)")
+    ap.add_argument("--no-dice-loss", action="store_true",
+                    help="Disable soft Dice mask loss")
+    ap.add_argument("--lambda-jacobian", type=float, default=1.0, dest="lambda_jacobian",
+                    help="Weight for Jacobian determinant folding loss (default 1.0)")
+    ap.add_argument("--out-prefix", default="voxelmorph",
+                    help="Checkpoint filename prefix (default: voxelmorph -> voxelmorph_best.pth)")
     args = ap.parse_args()
 
     device = get_device(args.device)
@@ -173,7 +195,9 @@ def main():
     enc = (32, 64, 64, 64) if args.large else (16, 32, 32, 32)
     dec = (64, 64, 64, 32) if args.large else (32, 32, 32, 16)
     log.info(f"Network: {'LARGE' if args.large else 'standard'}  enc={enc}")
-    log.info(f"MI sigma: {args.sigma}  elastic_aug: {args.elastic}")
+    use_dice = not args.no_dice_loss
+    log.info(f"MI sigma: {args.sigma}  elastic: {args.elastic}  dice_loss: {use_dice} (λ={args.lambda_dice})  jac_loss: λ={args.lambda_jacobian}")
+    mask_tf = SpatialTransformer((160, 192, 160), mode="bilinear").to(device) if use_dice else None
     model     = VoxelMorph(enc_features=enc, dec_features=dec,
                            diffeomorphic=args.diffeomorphic).to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -217,13 +241,15 @@ def main():
     MODELS.mkdir(parents=True, exist_ok=True)
     RESULTS.mkdir(parents=True, exist_ok=True)
 
-    best_path = str(MODELS / "voxelmorph_best.pth")
-    last_path = str(MODELS / "voxelmorph_last.pth")
+    best_path = str(MODELS / f"{args.out_prefix}_best.pth")
+    last_path = str(MODELS / f"{args.out_prefix}_last.pth")
     log_path  = str(RESULTS / "training_log.csv")
 
     # ── CSV log ──────────────────────────────────────────────────────────────
-    csv_fields   = ["epoch", "train_loss", "train_mi", "train_reg",
-                    "val_loss", "val_mi", "val_reg", "val_ncc", "lr"]
+    csv_fields = ["epoch", "train_loss", "train_mi", "train_reg", "train_jac_loss",
+                  "val_loss", "val_mi", "val_reg", "val_jac_loss", "val_ncc", "lr"]
+    if use_dice:
+        csv_fields.extend(["train_dice_loss", "val_dice_loss"])
     write_header = not Path(log_path).exists()
     csv_file     = open(log_path, "a", newline="")
     writer       = csv.DictWriter(csv_file, fieldnames=csv_fields)
@@ -237,9 +263,11 @@ def main():
     for epoch in range(start_epoch, start_epoch + args.epochs):
         t0         = time.time()
         train_logs = train_one_epoch(
-            model, train_loader, optimizer, scaler, device, args.lambda_reg, args.sigma)
+            model, train_loader, optimizer, scaler, device, args.lambda_reg, args.sigma,
+            mask_tf=mask_tf, lambda_dice=args.lambda_dice, lambda_jacobian=args.lambda_jacobian)
         val_logs   = validate(
-            model, val_loader, device, args.lambda_reg, args.sigma)
+            model, val_loader, device, args.lambda_reg, args.sigma,
+            mask_tf=mask_tf, lambda_dice=args.lambda_dice, lambda_jacobian=args.lambda_jacobian)
 
         if args.cosine:
             scheduler.step()
@@ -267,11 +295,13 @@ def main():
                             val_logs["val_loss"], last_path)
 
         elapsed = time.time() - t0
+        dice_str = f"  dice={train_logs['train_dice_loss']:.4f}" if use_dice else ""
         print(
             f"Epoch {epoch:4d} | "
             f"train={train_logs['train_loss']:.6f} "
             f"(mi={train_logs['train_mi']:.6f} "
-            f"reg={train_logs['train_reg']:.6f}) | "
+            f"reg={train_logs['train_reg']:.6f} "
+            f"jac={train_logs['train_jac_loss']:.6f}{dice_str}) | "
             f"val={val_logs['val_loss']:.6f}  "
             f"ncc={val_logs['val_ncc']:.4f} | "
             f"{elapsed:.1f}s"
