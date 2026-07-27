@@ -36,6 +36,95 @@ log = get_logger("visualize_diff")
 
 
 # ---------------------------------------------------------------------------
+# VoxelMorph inference helper
+# ---------------------------------------------------------------------------
+
+def _run_voxelmorph_inference(mr_npy: np.ndarray, ct_npy: np.ndarray,
+                               checkpoint: Path, device_str: str = "cuda") -> np.ndarray:
+    """Run VoxelMorph model on a single (mr, ct) pair and return the warped CT."""
+    import torch
+    from src.voxelmorph_model import VoxelMorph
+
+    device = torch.device(device_str if torch.cuda.is_available() else "cpu")
+    ckpt = torch.load(checkpoint, map_location=device, weights_only=False)
+    cfg  = ckpt.get("config", {})
+    diffeomorphic = cfg.get("diffeomorphic", True)
+    large = cfg.get("large", False)
+    enc = (32, 64, 64, 64) if large else (16, 32, 32, 32)
+    dec = (64, 64, 64, 32) if large else (32, 32, 32, 16)
+
+    model = VoxelMorph(enc_features=enc, dec_features=dec,
+                       diffeomorphic=diffeomorphic).to(device)
+    state = ckpt.get("model", ckpt)
+    if any(k.startswith("_orig_mod.") for k in state.keys()):
+        state = {k.replace("_orig_mod.", "", 1): v for k, v in state.items()}
+    model.load_state_dict(state, strict=True)
+    model.eval()
+
+    with torch.no_grad():
+        mr_t = torch.from_numpy(mr_npy[None, None]).to(device)
+        ct_t = torch.from_numpy(ct_npy[None, None]).to(device)
+        warped_ct, _ = model(mr_t, ct_t)
+        return warped_ct.squeeze().cpu().numpy()
+
+
+def _save_voxelmorph_diffmaps(manifest: pd.DataFrame, checkpoint: Path,
+                               out_dir: Path, n: int = None) -> None:
+    """Generate difference maps for VoxelMorph by running live inference."""
+    from src.dataset import MedicalRegistrationDataset
+
+    test_ds = MedicalRegistrationDataset(split="test")
+
+    if n is not None:
+        indices = range(min(n, len(test_ds)))
+    else:
+        indices = range(len(test_ds))
+
+    ensure_dir(out_dir)
+    all_stats = []
+
+    for i in indices:
+        sample = test_ds[i]
+        sid = sample["subject_id"]
+        mr_npy = sample["mr"].squeeze(0).numpy()   # (D, H, W)
+        ct_npy = sample["ct"].squeeze(0).numpy()   # (D, H, W)
+
+        log.info(f"[{i+1:03d}/{len(indices)}] Running VoxelMorph on {sid} ...")
+        try:
+            warped_ct = _run_voxelmorph_inference(mr_npy, ct_npy, checkpoint)
+
+            # Use the same mask if available
+            mask_path = DATA_PROC / sid / f"{sid}_mr_brain_mask.nii.gz"
+            mask = None
+            if mask_path.exists():
+                import nibabel as nib
+                mask = nib.load(str(mask_path)).get_fdata().astype("float32")
+
+            out_path = str(out_dir / f"{sid}_voxelmorph_diffmap.png")
+            stats = save_diff_visualization(
+                None, None, None,
+                out_path, sid, method="voxelmorph",
+                mr_arr=mr_npy, ct_arr=warped_ct, mask_arr=mask,
+            )
+            stats["subject_id"] = sid
+            all_stats.append(stats)
+        except Exception as exc:
+            log.error(f"{sid}: {exc}")
+
+    if all_stats:
+        stats_df  = pd.DataFrame(all_stats)
+        stats_csv = RESULTS / "difference_map_stats_voxelmorph.csv"
+        stats_df.to_csv(stats_csv, index=False)
+        log.info(f"Stats saved: {stats_csv}")
+        print(f"\n{'=' * 55}")
+        print(f"Difference map stats  |  Method: voxelmorph")
+        print(f"  diff_mean : {stats_df['diff_mean'].mean():.4f}")
+        print(f"  diff_p95  : {stats_df['diff_p95'].mean():.4f}")
+        print(f"{'=' * 55}")
+    print(f"\nSaved {len(all_stats)} VoxelMorph difference-map PNGs to: {out_dir}")
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -64,6 +153,9 @@ def save_diff_visualization(
     out_path:  str,
     subj_id:   str,
     method:    str = "affine",
+    mr_arr:    np.ndarray = None,
+    ct_arr:    np.ndarray = None,
+    mask_arr:  np.ndarray = None,
 ) -> dict:
     """Save a 3×3 grid: 3 anatomical planes × (MRI | CT | diff heatmap).
 
@@ -84,9 +176,12 @@ def save_diff_visualization(
     -------
     dict of difference map statistics
     """
-    mr   = _load_arr(mr_path)
-    ct   = _load_arr(ct_path)
-    mask = _load_arr(mask_path) if Path(mask_path).exists() else None
+    # Accept pre-loaded arrays (VoxelMorph path) or load from NIfTI files
+    mr   = mr_arr  if mr_arr  is not None else _load_arr(mr_path)
+    ct   = ct_arr  if ct_arr  is not None else _load_arr(ct_path)
+    mask = mask_arr if mask_arr is not None else (
+        _load_arr(mask_path) if mask_path and Path(mask_path).exists() else None
+    )
 
     diff      = compute_difference_map(mr, ct, mask, method="absolute")
     diff_norm = normalize_diff_by_local_std(diff, mask)
@@ -156,8 +251,10 @@ def main() -> None:
         description="Visualise MRI-CT difference maps for all subjects."
     )
     ap.add_argument("--method", default="affine",
-                    choices=["rigid", "affine", "bspline"],
+                    choices=["rigid", "affine", "bspline", "voxelmorph"],
                     help="Registration method to evaluate.")
+    ap.add_argument("--checkpoint", default="models/voxelmorph_v2_best.pth",
+                    help="Path to VoxelMorph checkpoint (only used with --method voxelmorph).")
     ap.add_argument("--subj",  default=None,
                     help="Process a single subject by ID.")
     ap.add_argument("--n",     type=int, default=None,
@@ -178,6 +275,17 @@ def main() -> None:
     out_dir = RESULTS / "figures" / "difference_maps" / args.method
     ensure_dir(out_dir)
 
+    # VoxelMorph: run live inference from NPY files
+    if args.method == "voxelmorph":
+        checkpoint = Path(args.checkpoint)
+        if not checkpoint.exists():
+            log.error(f"Checkpoint not found: {checkpoint}")
+            sys.exit(1)
+        log.info(f"VoxelMorph checkpoint: {checkpoint}")
+        _save_voxelmorph_diffmaps(manifest, checkpoint, out_dir, n=args.n)
+        return
+
+    # Classical methods: load NIfTI warped files from disk
     all_stats = []
     saved     = 0
 
