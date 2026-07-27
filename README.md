@@ -36,8 +36,8 @@ Evaluated on **36 unseen test subjects** from the [SynthRad 2023](https://synthr
 
 | Method | Dice ↑ | HD95 (mm) ↓ | Jac_neg% ↓ | Inference Time |
 |--------|--------|-------------|------------|----------------|
-| Rigid | 0.774 ± 0.064 | 19.5 ± 8.2 | — | ~3 sec |
-| Affine | 0.775 ± 0.064 | 19.5 ± 8.3 | — | ~3 sec |
+| Rigid | 0.774 ± 0.064 | 19.5 ± 8.2 | 0.000% | ~3 sec |
+| Affine | 0.775 ± 0.064 | 19.5 ± 8.3 | 0.000% | ~3 sec |
 | **B-spline (Classical)** | **0.776 ± 0.059** | **19.2 ± 7.6** | — | ~3 min |
 | **VoxelMorph v1 (baseline)** | **0.965 ± 0.006** | **1.22 ± 0.46** | **0.050%** | **~50 ms** |
 | **VoxelMorph v2 (elastic + Dice + Jac)** | *pending 200 epochs* | *pending* | *pending* | **~50 ms** |
