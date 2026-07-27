@@ -11,21 +11,39 @@ Medical imaging generates two fundamentally different views of the same patient:
 Takes a patient's CT scan and warps it to match their MRI — millimetre by millimetre — so both scans occupy the same coordinate space and can be overlaid perfectly.
 
 ```mermaid
-flowchart TD
-    A["🏥 Raw Patient Scan\nCT + MRI NIfTI files"] --> B["🔧 Preprocessing\nNormalise · Skull-strip · Resample to 1mm isotropic"]
-    B --> C["📐 Rigid Registration\nCorrect rotation + translation  ~3 sec"]
-    C --> D["📏 Affine Registration\nCorrect scale + shear  ~3 sec"]
-    D --> E["〰️ B-spline Registration\nClassical local pixel-level warp  ~3 min"]
-    E --> F["🧠 VoxelMorph Deep Learning\nNeural DVF prediction  ~50 ms"]
-    F --> G["✅ Registered CT\nPerfectly overlaid on MRI space"]
+flowchart LR
 
-    style A fill:#1e3a5f,color:#fff,stroke:#4a90d9
-    style B fill:#1e3a5f,color:#fff,stroke:#4a90d9
-    style C fill:#2d5016,color:#fff,stroke:#6abf40
-    style D fill:#2d5016,color:#fff,stroke:#6abf40
-    style E fill:#2d5016,color:#fff,stroke:#6abf40
-    style F fill:#5a2d7a,color:#fff,stroke:#b06ad4
-    style G fill:#5a1a1a,color:#fff,stroke:#e05252
+subgraph INPUT["Input"]
+A["🏥 Raw Patient Scan<br/>CT + MRI NIfTI Files"]
+end
+
+subgraph PRE["Preprocessing"]
+B["🔧 Normalize<br/>Skull Strip<br/>Resample to 1 mm"]
+end
+
+subgraph REG["Classical Registration"]
+C["📐 Rigid<br/>≈3 sec"]
+D["📏 Affine<br/>≈3 sec"]
+E["〰️ B-spline<br/>≈3 min"]
+end
+
+subgraph DL["Deep Learning"]
+F["🧠 VoxelMorph<br/>DVF Prediction<br/>≈50 ms"]
+end
+
+subgraph OUT["Output"]
+G["✅ Registered CT<br/>Aligned to MRI Space"]
+end
+
+A --> B --> C --> D --> E --> F --> G
+
+style A fill:#1e3a5f,color:#fff,stroke:#4a90d9
+style B fill:#1e3a5f,color:#fff,stroke:#4a90d9
+style C fill:#2d5016,color:#fff,stroke:#6abf40
+style D fill:#2d5016,color:#fff,stroke:#6abf40
+style E fill:#2d5016,color:#fff,stroke:#6abf40
+style F fill:#5a2d7a,color:#fff,stroke:#b06ad4
+style G fill:#5a1a1a,color:#fff,stroke:#e05252
 ```
 
 ---
