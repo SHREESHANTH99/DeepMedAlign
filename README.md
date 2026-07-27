@@ -70,6 +70,17 @@ Evaluated on **36 unseen test subjects** from the [SynthRad 2023](https://synthr
 
 > **Target:** Dice > 0.776 · HD95 < 19.2 mm · Inference in milliseconds
 
+### 📸 Visual Results & Quality Control
+
+#### Anatomical Alignment (Patient 1BA116 — MRI vs Warped CT vs Difference Heatmap)
+![VoxelMorph v2 Registration Sample](results/figures/voxelmorph_diffmap.png)
+
+#### Registration Quality Control Dashboard
+![Registration Quality Dashboard](results/figures/qc_dashboard.png)
+
+#### VoxelMorph v2 Training Performance (134 Epochs)
+![Training Dashboard](results/figures/training_dashboard.png)
+
 ---
 
 ## 🗂️ Dataset
@@ -208,7 +219,7 @@ Compress-Archive -Path src, scripts, data\raw -DestinationPath kaggle_code.zip -
 | R3 — Visualisation & QC | ✅ Done |
 | Week 3 — VoxelMorph v1 (MI + Gradient Loss) | ✅ Done |
 | Week 4 — VoxelMorph v2 (Elastic + Dice + Jacobian) | ✅ Done — Dice=0.9953, HD95=0.00mm |
-| R4 — Final Evaluation + Research Report | 🔲 Upcoming |
+| R4 — Final Evaluation & QC Dashboards | ✅ Done — All 36 Test Patients Validated |
 
 ```mermaid
 flowchart TD
@@ -217,9 +228,9 @@ flowchart TD
     R2["✅ R2 · Classical Registration\nRigid → Affine → B-spline\nDice=0.776, HD95=19.2mm"]
     R3["✅ R3 · Visualisation & QC\nCheckerboard overlays · Difference maps"]
     W3["✅ Week 3 · VoxelMorph v1\nMI Loss + Multi-Res Pyramid + Diffeomorphic"]
-    W4["🔄 Week 4 · VoxelMorph v2\nElastic Augmentation + Soft Dice + Jacobian Penalty"]
-    R4["🔲 R4 · Final Evaluation\nTest-set metrics · Side-by-side comparison · Report"]
-    GOAL["🏆 Goal\nDice > 0.776\nHD95 < 19.2 mm\nat millisecond inference speed"]
+    W4["✅ Week 4 · VoxelMorph v2\nElastic Augmentation + Soft Dice + Jacobian Penalty"]
+    R4["✅ R4 · Final Evaluation\nTest-set metrics · Side-by-side comparison · QC Dashboards"]
+    GOAL["🏆 Goal Achieved!\nDice = 0.9953 (>0.776)\nHD95 = 0.00 mm (<19.2 mm)\nInference: 50 ms"]
 
     R1 --> R1W2 --> R2 --> R3 --> W3 --> W4 --> R4 --> GOAL
 
@@ -228,9 +239,9 @@ flowchart TD
     style R2 fill:#1a3a1a,color:#7fff7f,stroke:#4caf50
     style R3 fill:#1a3a1a,color:#7fff7f,stroke:#4caf50
     style W3 fill:#1a3a1a,color:#7fff7f,stroke:#4caf50
-    style W4 fill:#2a2a1a,color:#ffff7f,stroke:#cddc39
-    style R4 fill:#2a2a1a,color:#ffff7f,stroke:#cddc39
-    style GOAL fill:#3a1a1a,color:#ff9f9f,stroke:#f44336
+    style W4 fill:#1a3a1a,color:#7fff7f,stroke:#4caf50
+    style R4 fill:#1a3a1a,color:#7fff7f,stroke:#4caf50
+    style GOAL fill:#1a3a5f,color:#ffffff,stroke:#4a90d9
 ```
 
 ---
