@@ -11,13 +11,13 @@ Medical imaging generates two fundamentally different views of the same patient:
 Takes a patient's CT scan and warps it to match their MRI — millimetre by millimetre — so both scans occupy the same coordinate space and can be overlaid perfectly.
 
 ```mermaid
-flowchart LR
-    A["🏥 Raw Patient Scan\n(CT + MRI)"] --> B["🔧 Preprocessing\nNormalise · Skull-strip · Resample to 1mm"]
-    B --> C["📐 Rigid Registration\nRotate + Translate\n~3 sec"]
-    C --> D["📏 Affine Registration\nScale + Shear\n~3 sec"]
-    D --> E["〰️ B-spline Registration\nLocal pixel-level warp\n~3 min"]
-    E --> F["🧠 VoxelMorph (Deep Learning)\nNeural DVF prediction\n~50ms"]
-    F --> G["✅ Registered CT\nPerfectly overlaid\non MRI space"]
+flowchart TD
+    A["🏥 Raw Patient Scan\nCT + MRI NIfTI files"] --> B["🔧 Preprocessing\nNormalise · Skull-strip · Resample to 1mm isotropic"]
+    B --> C["📐 Rigid Registration\nCorrect rotation + translation  ~3 sec"]
+    C --> D["📏 Affine Registration\nCorrect scale + shear  ~3 sec"]
+    D --> E["〰️ B-spline Registration\nClassical local pixel-level warp  ~3 min"]
+    E --> F["🧠 VoxelMorph Deep Learning\nNeural DVF prediction  ~50 ms"]
+    F --> G["✅ Registered CT\nPerfectly overlaid on MRI space"]
 
     style A fill:#1e3a5f,color:#fff,stroke:#4a90d9
     style B fill:#1e3a5f,color:#fff,stroke:#4a90d9
@@ -36,8 +36,8 @@ Evaluated on **36 unseen test subjects** from the [SynthRad 2023](https://synthr
 
 | Method | Dice ↑ | HD95 (mm) ↓ | Jac_neg% ↓ | Inference Time |
 |--------|--------|-------------|------------|----------------|
-| Rigid | 0.774 ± 0.064 | 19.5 ± 8.2 | — | ~3 sec |
-| Affine | 0.775 ± 0.064 | 19.5 ± 8.3 | — | ~3 sec |
+| Rigid | 0.774 ± 0.064 | 19.5 ± 8.2 | 0.000% | ~3 sec |
+| Affine | 0.775 ± 0.064 | 19.5 ± 8.3 | 0.000% | ~3 sec |
 | **B-spline (Classical)** | **0.776 ± 0.059** | **19.2 ± 7.6** | — | ~3 min |
 | **VoxelMorph v1 (baseline)** | **0.965 ± 0.006** | **1.22 ± 0.46** | **0.050%** | **~50 ms** |
 | **VoxelMorph v2 (elastic + Dice + Jac)** | *pending 200 epochs* | *pending* | *pending* | **~50 ms** |
