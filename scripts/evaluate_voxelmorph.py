@@ -1,182 +1,212 @@
 """
-evaluate_voxelmorph.py
------------------------
-Evaluates the trained VoxelMorph model on the test set.
+scripts/evaluate_voxelmorph.py
+------------------------------
+Evaluate a trained VoxelMorph checkpoint on the test split.
 
-Usage:
-  python scripts/evaluate_voxelmorph.py
-  python scripts/evaluate_voxelmorph.py --tta          # Test-Time Adaptation
-  python scripts/evaluate_voxelmorph.py --diffeomorphic
+Primary metrics  : Dice, HD95, Jacobian neg%
+Secondary metric : NCC  (sanity check only -- cross-modality, not meaningful as primary)
+
+Usage
+-----
+    python scripts/evaluate_voxelmorph.py
+    python scripts/evaluate_voxelmorph.py --checkpoint models/voxelmorph_last.pth
+    python scripts/evaluate_voxelmorph.py --compare-baseline
+    python scripts/evaluate_voxelmorph.py --tta            # logs warning, TTA not yet implemented
 """
 
-import sys
+from __future__ import annotations
+
 import argparse
-import time
-import pandas as pd
-import numpy as np
+import sys
+import warnings
 from pathlib import Path
-from tqdm import tqdm
 
+import numpy as np
 import torch
-import torch.optim as optim
-import nibabel as nib
+import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
-from src.config import DATA_PROC, RESULTS, MANIFEST_P, MODELS
 from src.voxelmorph_model import VoxelMorph, SpatialTransformer
-from src.losses import total_loss
-from src.metrics import compute_all_metrics
-from src.utils import get_logger, ensure_dir
+from src.dataloader        import get_dataloaders
+from src.metrics           import (
+    dice_coefficient,
+    hausdorff95,
+    jacobian_stats,
+    normalised_cross_correlation,
+)
+from src.utils             import get_logger
 
-log = get_logger("eval_voxelmorph")
-
-
-def save_nifti(tensor, reference_nii_path, save_path, is_mask=False):
-    arr = tensor.detach().cpu().squeeze().numpy()
-    if is_mask:
-        arr = (arr > 0.5).astype(np.uint8)
-    ref_nii = nib.load(reference_nii_path)
-    nib.save(nib.Nifti1Image(arr, ref_nii.affine, ref_nii.header), save_path)
+log = get_logger("evaluate_voxelmorph")
 
 
-def test_time_adapt(model, mr_t, ct_t, device, steps=30, lr=1e-4):
-    """Fine-tune the model on a single subject for `steps` gradient steps.
+def _load_checkpoint(path: Path, device: torch.device):
+    """Load model weights; infer enc/dec feature sizes and diffeomorphic flag."""
+    ckpt = torch.load(path, map_location=device)
 
-    This is Test-Time Adaptation (TTA): squeezes extra accuracy out of the
-    final model without changing the saved checkpoint.
-    """
-    adapted = type(model).__new__(type(model))
-    adapted.__dict__.update(model.__dict__)
-    adapted = model.__class__(
-        diffeomorphic=model.diffeomorphic
+    cfg           = ckpt.get("config", {})
+    diffeomorphic = cfg.get("diffeomorphic", True)
+    large         = cfg.get("large", False)
+
+    enc = (32, 64, 64, 64) if large else (16, 32, 32, 32)
+    dec = (64, 64, 64, 32) if large else (32, 32, 32, 16)
+
+    model = VoxelMorph(
+        enc_features  = enc,
+        dec_features  = dec,
+        diffeomorphic = diffeomorphic,
     ).to(device)
-    adapted.load_state_dict(model.state_dict())
-    adapted.train()
 
-    opt = optim.Adam(adapted.parameters(), lr=lr)
-    for _ in range(steps):
-        opt.zero_grad()
-        warped_ct, dvf = adapted(mr_t, ct_t)
-        loss, _ = total_loss(warped_ct, mr_t, dvf)
-        loss.backward()
-        opt.step()
-
-    adapted.eval()
-    return adapted
-
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--model",         default=str(MODELS / "voxelmorph_best.pth"))
-    ap.add_argument("--device",        default="cuda" if torch.cuda.is_available() else "cpu")
-    ap.add_argument("--tta",           action="store_true", help="Enable Test-Time Adaptation")
-    ap.add_argument("--tta-steps",     type=int, default=30)
-    ap.add_argument("--diffeomorphic", action="store_true")
-    args = ap.parse_args()
-
-    if not MANIFEST_P.exists():
-        log.error("manifest_processed.csv not found.")
-        sys.exit(1)
-
-    manifest = pd.read_csv(MANIFEST_P)
-    manifest = manifest[manifest["split"] == "test"].reset_index(drop=True)
-
-    if len(manifest) == 0:
-        log.error("No test subjects found in manifest.")
-        sys.exit(1)
-
-    log.info(f"Evaluating on {len(manifest)} test subjects | TTA={args.tta}")
-
-    device = torch.device(args.device)
-    model  = VoxelMorph(diffeomorphic=args.diffeomorphic).to(device)
-
-    if not Path(args.model).exists():
-        log.error(f"Model not found: {args.model}")
-        sys.exit(1)
-
-    ckpt = torch.load(args.model, map_location=device)
-    model.load_state_dict(ckpt["model"])
+    state = ckpt.get("model", ckpt)
+    model.load_state_dict(state, strict=True)
     model.eval()
-    log.info(f"Loaded model from Epoch {ckpt['epoch']} (val_loss: {ckpt['val_loss']:.6f})")
 
-    mask_transformer = SpatialTransformer(size=(160, 192, 160), mode="nearest").to(device)
+    epoch = ckpt.get("epoch", "?")
+    log.info(f"Loaded checkpoint: {path}  (epoch {epoch}, diffeomorphic={diffeomorphic})")
+    return model
+
+
+def _print_summary(rows: list, label: str):
+    """Print mean +- std for primary + secondary metrics."""
+    df = pd.DataFrame(rows)
+    print(f"\n{'='*60}")
+    print(f"  {label} -- Per-subject summary (mean +- std)")
+    print(f"{'='*60}")
+
+    for col, unit, primary in [
+        ("dice",        "",    True),
+        ("hd95",        "mm",  True),
+        ("jac_neg_pct", "%",   True),
+        ("ncc",         "",    False),
+    ]:
+        if col not in df.columns:
+            continue
+        vals = df[col].dropna()
+        tag  = "" if primary else "  [secondary / sanity check -- cross-modality NCC]"
+        print(f"  {col:<14}: {vals.mean():.4f} +- {vals.std():.4f} {unit}{tag}")
+    print()
+
+
+def _compare_baseline(vm_df: pd.DataFrame, baseline_path: Path):
+    """Side-by-side table: VoxelMorph vs B-spline baseline."""
+    if not baseline_path.exists():
+        log.warning(f"Baseline file not found: {baseline_path}  -- skipping comparison.")
+        return
+
+    bl = pd.read_csv(baseline_path)
+    print(f"\n{'='*70}")
+    print("  Side-by-side: VoxelMorph  vs  B-spline Baseline")
+    print(f"{'='*70}")
+    print(f"  {'Metric':<14} {'VoxelMorph':>14} {'B-spline':>14}")
+    print(f"  {'-'*44}")
+
+    for col, unit in [("dice", ""), ("hd95", "mm")]:
+        vm_val  = vm_df[col].dropna().mean()  if col in vm_df.columns  else float("nan")
+        bl_val  = bl[col].dropna().mean()      if col in bl.columns     else float("nan")
+        winner  = "VM wins" if (col == "dice" and vm_val > bl_val) or \
+                               (col == "hd95"  and vm_val < bl_val) else "BL wins"
+        print(f"  {col:<14} {vm_val:>13.4f}  {bl_val:>13.4f}   {winner}")
+    print()
+
+
+def evaluate(args):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log.info(f"Device: {device}")
+
+    if args.tta:
+        warnings.warn("TTA not yet implemented, running without it", UserWarning)
+
+    model = _load_checkpoint(Path(args.checkpoint), device)
+
+    # Nearest-neighbour transformer for binary mask warping (no interpolation artifacts)
+    vol_size = (160, 192, 160)
+    mask_transformer = SpatialTransformer(vol_size, mode="nearest").to(device)
+
+    loaders     = get_dataloaders(augment=False, manifest=args.manifest)
+    test_loader = loaders.get("test")
+    if test_loader is None:
+        log.error("Test DataLoader is None -- check manifest / dataset.")
+        sys.exit(1)
+
+    log.info(f"Evaluating {len(test_loader.dataset)} test subjects ...")
 
     rows    = []
-    t_start = time.time()
+    skipped = 0
+    with torch.no_grad():
+        for i, batch in enumerate(test_loader):
+            mr      = batch["mr"].to(device)        # (1,1,D,H,W)
+            ct      = batch["ct"].to(device)
+            mr_mask = batch["mask"].to(device)      # MRI brain mask
+            ct_mask = batch.get("ct_mask")          # CT  brain mask
 
-    for _, row in tqdm(manifest.iterrows(), total=len(manifest), desc="Evaluating"):
-        sid = row["subject_id"]
-        out = DATA_PROC / sid
+            subject_id = batch.get("subject_id", [f"subj_{i:03d}"])[0]
 
-        mr_path      = str(out / f"{sid}_mr_norm.nii.gz")
-        ct_path      = str(out / f"{sid}_ct_norm.nii.gz")
-        mr_mask_path = str(out / f"{sid}_mr_brain_mask.nii.gz")
-        ct_mask_path = str(out / f"{sid}_ct_mask.nii.gz")
-        warped_ct_path   = str(out / f"{sid}_ct_voxelmorph.nii.gz")
-        warped_mask_path = str(out / f"{sid}_ct_mask_voxelmorph.nii.gz")
+            # Hard skip if CT mask is missing -- never substitute MR mask as proxy
+            if ct_mask is None:
+                log.error(
+                    f"{subject_id}: ct_mask missing from batch -- "
+                    f"run scripts/generate_ct_mask_npy.py then retry. SKIPPING."
+                )
+                skipped += 1
+                continue
 
-        if not (Path(mr_path).exists() and Path(ct_path).exists()):
-            log.warning(f"Inputs missing for {sid} — skipping.")
-            continue
+            warped_ct, dvf = model(mr, ct)
 
-        try:
-            mr_t    = torch.from_numpy(nib.load(mr_path).get_fdata().astype("float32")).unsqueeze(0).unsqueeze(0).to(device)
-            ct_t    = torch.from_numpy(nib.load(ct_path).get_fdata().astype("float32")).unsqueeze(0).unsqueeze(0).to(device)
-            mask_t  = torch.from_numpy(nib.load(ct_mask_path).get_fdata().astype("float32")).unsqueeze(0).unsqueeze(0).to(device)
+            # Warp CT mask with nearest-neighbour (binary -- no interpolation artifacts)
+            warped_ct_mask = mask_transformer(ct_mask.to(device).float(), dvf)
 
-            # Test-Time Adaptation: fine-tune on this specific subject
-            active_model = test_time_adapt(model, mr_t, ct_t, device,
-                                           steps=args.tta_steps) if args.tta else model
+            # Convert to numpy
+            mr_mask_np        = mr_mask[0, 0].cpu().numpy().astype(bool)
+            warped_ct_mask_np = (warped_ct_mask[0, 0].cpu().numpy() > 0.5).astype(bool)
+            mr_np             = mr[0, 0].cpu().numpy()
+            warped_ct_np      = warped_ct[0, 0].cpu().numpy()
+            dvf_np            = dvf[0].cpu().numpy()   # (3, D, H, W)
 
-            with torch.no_grad(), torch.cuda.amp.autocast(enabled=(device.type == "cuda")):
-                warped_ct, dvf = active_model(mr_t, ct_t)
-                warped_mask    = mask_transformer(mask_t, dvf)
+            dice   = dice_coefficient(mr_mask_np, warped_ct_mask_np)
+            hd95   = hausdorff95(mr_mask_np, warped_ct_mask_np, voxel_size=1.0)
+            jstats = jacobian_stats(dvf_np)
+            ncc    = normalised_cross_correlation(mr_np, warped_ct_np, mask=mr_mask_np)
 
-            save_nifti(warped_ct,   mr_path, warped_ct_path)
-            save_nifti(warped_mask, mr_path, warped_mask_path, is_mask=True)
-
-            m = compute_all_metrics(
-                mr_path, warped_ct_path, mr_mask_path, warped_mask_path,
-                method="voxelmorph",
+            row = {
+                "subject_id":  subject_id,
+                "dice":        round(dice, 4),
+                "hd95":        round(hd95, 3),
+                "ncc":         round(ncc,  4),    # secondary / sanity check
+                **{k: round(v, 4) for k, v in jstats.items()},
+            }
+            rows.append(row)
+            log.info(
+                f"[{i+1:03d}/{len(test_loader.dataset)}] {subject_id} | "
+                f"dice={dice:.4f}  hd95={hd95:.2f}mm  "
+                f"jac_neg%={jstats['jac_neg_pct']:.2f}  ncc={ncc:.4f}[secondary]"
             )
-            rows.append({"subject_id": sid, "split": "test", "status": "ok", **m})
 
-        except Exception as exc:
-            log.error(f"{sid}: {exc}")
-            rows.append({"subject_id": sid, "split": "test", "status": f"error: {exc}"})
+    n_total = len(test_loader.dataset)
+    log.info(f"Dice/HD95 computed on {len(rows)}/{n_total} subjects ({skipped} skipped — missing ct_mask)")
 
-    results = pd.DataFrame(rows)
-    ensure_dir(RESULTS)
-    out_csv = RESULTS / "baseline_metrics_voxelmorph.csv"
-    results.to_csv(out_csv, index=False)
-    log.info(f"Saved: {out_csv}")
+    out_path = ROOT / "results" / "voxelmorph_test_metrics.csv"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(out_path, index=False)
+    log.info(f"Results saved -> {out_path}")
 
-    ok      = results[results["status"] == "ok"]
-    elapsed = time.time() - t_start
+    _print_summary(rows, label=f"checkpoint: {args.checkpoint}")
 
-    print("\n" + "=" * 65)
-    print(f"FINAL EVALUATION  |  TTA={'ON' if args.tta else 'OFF'}")
-    print("=" * 65)
+    if args.compare_baseline:
+        bl_path = ROOT / "results" / "baseline_metrics_bspline.csv"
+        _compare_baseline(pd.DataFrame(rows), bl_path)
 
-    for metric, label, note in [
-        ("dice", "Dice (brain-mask overlap)", "target > 0.85"),
-        ("hd95", "HD95 in mm",                "target < 5.0"),
-        ("ncc",  "NCC",                        "higher is better"),
-    ]:
-        if metric not in ok.columns:
-            continue
-        vals = ok[metric].dropna()
-        if vals.empty:
-            continue
-        print(f"\n  {label} ({note}):")
-        print(f"    Mean ± Std : {vals.mean():.4f} ± {vals.std():.4f}")
-        print(f"    Median     : {vals.median():.4f}")
 
-    print(f"\n  Subjects OK : {len(ok)} / {len(results)}")
-    print(f"  Wall time   : {elapsed:.1f}s")
-    print("=" * 65)
+def parse_args():
+    p = argparse.ArgumentParser(description="Evaluate VoxelMorph on the test split.")
+    p.add_argument("--checkpoint",       default="models/voxelmorph_best.pth")
+    p.add_argument("--manifest",         default=None)
+    p.add_argument("--tta",              action="store_true", default=False,
+                   help="Test-time adaptation (NOT YET IMPLEMENTED)")
+    p.add_argument("--compare-baseline", action="store_true", default=False,
+                   help="Compare against results/baseline_metrics_bspline.csv")
+    return p.parse_args()
 
 
 if __name__ == "__main__":
-    main()
+    evaluate(parse_args())
