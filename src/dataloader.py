@@ -46,6 +46,7 @@ def get_dataloaders(
     manifest:    Optional[str] = None,
     augment:     bool = True,
     elastic:     bool = False,
+    affine:      bool = False,
 ) -> Dict[str, DataLoader]:
     """Build and return train / val / test DataLoaders.
 
@@ -61,7 +62,7 @@ def get_dataloaders(
     -------
     dict with keys 'train', 'val', 'test' each containing a DataLoader
     """
-    train_tf = get_train_transforms(elastic=elastic) if augment else get_val_transforms()
+    train_tf = get_train_transforms(elastic=elastic, affine=affine) if augment else get_val_transforms()
     val_tf   = get_val_transforms()
 
     datasets = {}
