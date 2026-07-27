@@ -52,15 +52,45 @@ def gradient_loss(dvf: torch.Tensor) -> torch.Tensor:
     return (dy ** 2).mean() + (dx ** 2).mean() + (dz ** 2).mean()
 
 
+def soft_dice_loss(pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    """Differentiable soft Dice loss: 1 - soft_dice."""
+    pred_f   = pred.reshape(-1)
+    target_f = target.reshape(-1)
+    inter    = (pred_f * target_f).sum()
+    return 1.0 - (2.0 * inter + eps) / (pred_f.sum() + target_f.sum() + eps)
+
+
+def jacobian_determinant_loss(dvf: torch.Tensor) -> torch.Tensor:
+    """Differentiable Jacobian determinant penalty (penalizes negative determinants / folding)."""
+    J_z = dvf[:, 0, 1:, :-1, :-1] - dvf[:, 0, :-1, :-1, :-1]
+    J_y = dvf[:, 1, :-1, 1:, :-1] - dvf[:, 1, :-1, :-1, :-1]
+    J_x = dvf[:, 2, :-1, :-1, 1:] - dvf[:, 2, :-1, :-1, :-1]
+
+    jac_det = (1.0 + J_z) * (1.0 + J_y) * (1.0 + J_x)
+    return F.relu(-jac_det).mean()
+
+
 def total_loss(
-    warped_ct:  torch.Tensor,
-    mr:         torch.Tensor,
-    dvf:        torch.Tensor,
-    lambda_reg: float = 0.5,
-    sigma:      float = 0.1,
+    warped_ct:       torch.Tensor,
+    mr:              torch.Tensor,
+    dvf:             torch.Tensor,
+    lambda_reg:      float = 0.5,
+    sigma:           float = 0.1,
+    warped_mask:     torch.Tensor = None,
+    target_mask:     torch.Tensor = None,
+    lambda_dice:     float = 1.0,
+    lambda_jacobian: float = 1.0,
 ) -> tuple:
     sim  = mutual_information_loss(warped_ct, mr, sigma=sigma)
     reg  = gradient_loss(dvf)
-    loss = sim + lambda_reg * reg
+    jac  = jacobian_determinant_loss(dvf)
+    loss = sim + lambda_reg * reg + lambda_jacobian * jac
+    metrics = {"mi": sim.item(), "reg": reg.item(), "jac_loss": jac.item()}
 
-    return loss, {"total": loss.item(), "mi": sim.item(), "reg": reg.item()}
+    if warped_mask is not None and target_mask is not None:
+        dl = soft_dice_loss(warped_mask, target_mask)
+        loss = loss + lambda_dice * dl
+        metrics["dice_loss"] = dl.item()
+
+    metrics["total"] = loss.item()
+    return loss, metrics
