@@ -13,6 +13,7 @@ logs/*
 !logs/.gitkeep
 results/figures/*
 !results/figures/.gitkeep
+!results/figures/difference_maps/
 models/*
 !models/.gitkeep
 data/*
