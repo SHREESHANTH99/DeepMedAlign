@@ -1,5 +1,13 @@
 # 🧠 DeepMedAlign
 
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?style=flat&logo=pytorch&logoColor=white)
+![CUDA](https://img.shields.io/badge/CUDA-12.1-76B900?style=flat&logo=nvidia&logoColor=white)
+![SimpleITK](https://img.shields.io/badge/SimpleITK-2.x-0078D4?style=flat)
+![NumPy](https://img.shields.io/badge/NumPy-1.x-013243?style=flat&logo=numpy&logoColor=white)
+![Kaggle](https://img.shields.io/badge/Trained%20on-Kaggle%20T4-20BEFF?style=flat&logo=kaggle&logoColor=white)
+![License](https://img.shields.io/badge/License-Research%20Only-red?style=flat)
+
 > **Aligning CT and MRI brain scans — voxel by voxel — using classical registration and deep learning.**
 
 Medical imaging generates two fundamentally different views of the same patient: **MRI** captures soft tissue detail, **CT** guides treatment planning. Before clinicians can use them together, these scans must be precisely aligned. DeepMedAlign automates that process — from raw NIfTI files to a perfectly warped, voxel-registered output — at scale, on 180 real patient brain scans.
@@ -81,6 +89,9 @@ Each brain scan is a 3D cube of **160 × 192 × 160 = ~4.9 million voxels**. Loa
 
 ## 🚀 Quick Start
 
+> ⚠️ **Raw data (~15 GB) not included.** Download from [SynthRad 2023](https://synthrad2023.grand-challenge.org/) first.
+
+**🪟 Windows (PowerShell)**
 ```powershell
 # 1. Create and activate virtual environment
 python -m venv .venv
@@ -114,6 +125,43 @@ python scripts\evaluate_voxelmorph.py `
 
 # 9. Generate difference map visualisations
 python scripts\visualize_difference_maps.py --method voxelmorph
+```
+
+**🐧 Linux / 🍎 Mac (bash)**
+```bash
+# 1. Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 2. Install dependencies
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+pip install nibabel SimpleITK monai numpy pandas scikit-learn
+
+# 3. Preprocess all 180 subjects
+python scripts/run_preprocessing_batch.py --resume --no-hdbet
+
+# 4. Run classical registration
+python scripts/run_classical.py --no-bspline
+
+# 5. Build NPY cache
+python scripts/build_npy_cache.py --verify
+
+# 6. Generate CT brain masks
+python scripts/generate_ct_mask_npy.py
+
+# 7. Train VoxelMorph v2
+python scripts/train_voxelmorph.py \
+    --epochs 200 --cosine --diffeomorphic \
+    --sigma 0.1 --lr 0.0003 \
+    --elastic --lambda-dice 1.0 --lambda-jacobian 0.5 \
+    --out-prefix voxelmorph_v2 --device cuda
+
+# 8. Evaluate on test set
+python scripts/evaluate_voxelmorph.py \
+    --checkpoint models/voxelmorph_v2_best.pth --compare-baseline
+
+# 9. Generate difference map visualisations
+python scripts/visualize_difference_maps.py --method voxelmorph
 ```
 
 ---
