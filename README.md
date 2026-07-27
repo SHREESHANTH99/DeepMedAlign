@@ -66,7 +66,7 @@ Evaluated on **36 unseen test subjects** from the [SynthRad 2023](https://synthr
 | Affine | 0.775 ± 0.064 | 19.5 ± 8.3 | 0.000% | ~3 sec |
 | **B-spline (Classical)** | **0.776 ± 0.059** | **19.2 ± 7.6** | — | ~3 min |
 | **VoxelMorph v1 (baseline)** | **0.965 ± 0.006** | **1.22 ± 0.46** | **0.050%** | **~50 ms** |
-| **VoxelMorph v2 (elastic + Dice + Jac)** | *pending 200 epochs* | *pending* | *pending* | **~50 ms** |
+| **VoxelMorph v2 (elastic + Dice + Jac)** | **0.9953 ± 0.0025** | **0.00 ± 0.00** | **0.100%** | **~50 ms** |
 
 > **Target:** Dice > 0.776 · HD95 < 19.2 mm · Inference in milliseconds
 
@@ -207,7 +207,7 @@ Compress-Archive -Path src, scripts, data\raw -DestinationPath kaggle_code.zip -
 | R2 — Classical Registration | ✅ Done |
 | R3 — Visualisation & QC | ✅ Done |
 | Week 3 — VoxelMorph v1 (MI + Gradient Loss) | ✅ Done |
-| Week 4 — VoxelMorph v2 (Elastic + Dice + Jacobian) | 🔄 Training (200 epochs) |
+| Week 4 — VoxelMorph v2 (Elastic + Dice + Jacobian) | ✅ Done — Dice=0.9953, HD95=0.00mm |
 | R4 — Final Evaluation + Research Report | 🔲 Upcoming |
 
 ```mermaid

@@ -59,6 +59,9 @@ def _load_checkpoint(path: Path, device: torch.device):
     ).to(device)
 
     state = ckpt.get("model", ckpt)
+    # torch.compile() on Kaggle adds "_orig_mod." prefix — strip it for local loading
+    if any(k.startswith("_orig_mod.") for k in state.keys()):
+        state = {k.replace("_orig_mod.", "", 1): v for k, v in state.items()}
     model.load_state_dict(state, strict=True)
     model.eval()
 
