@@ -120,8 +120,7 @@ def skull_strip_mri(in_path: str,
         "-i", str(in_path),
         "-o", str(out_path),
         "-device", device,
-        "-mode", "fast",
-        "-tta", "0",
+        "--disable_tta",
     ]
     try:
         subprocess.run(cmd, check=True, capture_output=True)

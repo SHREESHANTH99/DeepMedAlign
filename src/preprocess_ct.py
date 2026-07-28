@@ -83,7 +83,7 @@ def apply_brain_mask(ct_img: sitk.Image,
     log.info(f"Brain mask applied: {n_brain} brain voxels retained, "
              f"range=[{brain_vox[brain_vox != 0].min():.0f}, "
              f"{brain_vox[brain_vox != 0].max():.0f}] HU")
-    return masked
+    return masked, mask  # return resampled mask so caller stays in sync
 
 
 # ── Step 5: Min-Max Normalization ─────────────────────────────────────────────
@@ -173,7 +173,7 @@ def preprocess_ct_full(raw_path: str,
     mask = None
     if mask_path and Path(mask_path).exists():
         mask = sitk.ReadImage(str(mask_path))
-        img  = apply_brain_mask(img, mask)
+        img, mask = apply_brain_mask(img, mask)  # mask is now CT-space aligned
     else:
         log.warning("No brain mask provided — CT not masked. "
                     "Run MRI pipeline first to generate mask.")
