@@ -1,8 +1,6 @@
 # Project Report
 
-## Part 1: Background and the Classical Pipeline
-
-### 1. Introduction & Clinical Motivation
+### Introduction & Clinical Motivation
 
 Radiation therapy planning for brain tumors depends on a single, deceptively difficult requirement: two completely different imaging modalities must be brought into perfect spatial agreement before treatment can begin.
 
@@ -21,7 +19,7 @@ This means a simple pixel-by-pixel or intensity-matching approach — the kind t
 
 ---
 
-### 2. Data Engineering & Preprocessing (R1)
+### Data Engineering & Preprocessing (R1)
 
 Before any registration algorithm — classical or deep learning — can be trained or evaluated, the raw imaging data has to be brought into a consistent, standardized format. Medical scanners do not produce data in a form that is directly comparable across patients: different hospitals, different scanner manufacturers, and even different scan protocols at the same hospital can produce volumes with different orientations, voxel spacings, and intensity ranges. Roughly 60GB of raw hospital-grade imaging data was processed through the pipeline described below.
 
@@ -39,7 +37,7 @@ Together, these four preprocessing stages take heterogeneous, raw hospital data 
 
 ---
 
-### 3. The Classical Baselines (R2 – Week 2)
+### The Classical Baselines (R2)
 
 Before turning to deep learning, it was essential to establish a classical, "old-school" baseline. This serves two purposes: it gives us a trustworthy performance floor to compare against, and it lets us empirically demonstrate *why* a deep learning approach is worth the added complexity, rather than assuming it.
 
