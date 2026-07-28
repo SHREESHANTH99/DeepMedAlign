@@ -180,7 +180,7 @@ python scripts/visualize_difference_maps.py --method voxelmorph
 ## ☁️ Running on Kaggle (Recommended for Full 200-Epoch Training)
 
 Your local RTX 4050 takes ~25 min/epoch → **83 hours for 200 epochs**.  
-A Kaggle T4 GPU takes ~7 min/epoch → **~24 hours for 200 epochs** (free!).
+A Kaggle T4 GPU takes on average ~200 seconds per epoch → **~11 hours for 200 epochs** (free!).
 
 **Step 1 — Zip just the code:**
 ```powershell

@@ -209,11 +209,11 @@ def save_diff_visualization(
         mr_n = _norm_display(mr_sl)
         ct_n = _norm_display(ct_sl)
 
-        axes[row, 0].imshow(mr_n.T,   cmap="gray", origin="lower", aspect="auto")
-        axes[row, 1].imshow(ct_n.T,   cmap="gray", origin="lower", aspect="auto")
+        axes[row, 0].imshow(mr_n.T,   cmap="gray", origin="lower", aspect="equal")
+        axes[row, 1].imshow(ct_n.T,   cmap="gray", origin="lower", aspect="equal")
         last_im = axes[row, 2].imshow(
             diff_sl.T, cmap="hot", origin="lower",
-            aspect="auto", vmin=0, vmax=3.0,
+            aspect="equal", vmin=0, vmax=3.0,
         )
 
         if row == 0:
