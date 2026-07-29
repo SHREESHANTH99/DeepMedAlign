@@ -216,3 +216,30 @@ Extend the preprocessing pipeline to accept raw DICOM files directly from hospit
 
 All code, training scripts, evaluation pipelines, and generated figures are publicly available at:
 🔗 **Repository:** https://github.com/vivektirumalasetty/DeepMedAlign
+
+To reproduce the final VoxelMorph v2 results:
+
+1. Download SynthRAD2023 brain data → `data/raw/synthrad/brain/`
+
+2. Run:
+```bash
+   python scripts/run_preprocessing_batch.py --resume --no-hdbet
+```
+
+3. Run:
+```bash
+   python scripts/build_npy_cache.py --verify
+```
+
+4. Run:
+```bash
+   python scripts/train_voxelmorph.py --epochs 200 --cosine \
+       --diffeomorphic --elastic --lambda-dice 1.0 \
+       --lambda-jacobian 0.5 --out-prefix voxelmorph_v2
+```
+
+5. Run:
+```bash
+   python scripts/evaluate_voxelmorph.py \
+       --checkpoint models/voxelmorph_v2_best.pth --compare-baseline
+```
