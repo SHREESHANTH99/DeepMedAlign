@@ -212,7 +212,7 @@ Extend the preprocessing pipeline to accept raw DICOM files directly from hospit
 
 ---
 
-## 8. Reproducibility
+## Reproducibility
 
 All code, training scripts, evaluation pipelines, and generated figures are publicly available at:
 🔗 **Repository:** https://github.com/vivektirumalasetty/DeepMedAlign
