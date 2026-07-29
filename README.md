@@ -374,6 +374,21 @@ NCC is steadily improving. `jac_loss` remains near-zero — confirming the diffe
 
 ---
 
+## ⚠️ Limitations
+
+| Scenario | Works? | Reason |
+|----------|--------|--------|
+| Healthy adult brain MRI + CT (any scanner) | ✅ Yes | Model trained on 180 diverse SynthRAD2023 brain patients |
+| Different hospital scanner / brand | ✅ Likely | Preprocessing normalizes all intensities to [0, 1] |
+| Large head size variation | ⚠️ Mostly | May lose precision at skull edges |
+| Extreme head tilt (>30°) | ⚠️ Needs pre-alignment | Rigid pre-registration recommended first |
+| Brain tumor / resection cavity | ⚠️ Uncertain | No pathological cases in training data |
+| Pelvis, thorax, or other body parts | ❌ No | Model trained on brain anatomy only |
+
+*In short:* This model works reliably for standard healthy adult brain MRI-CT registration after preprocessing. It is not a general-purpose registration tool and has not been clinically validated. A prospective study with radiologist review would be required before any real hospital deployment.
+
+---
+
 ## 🤝 Contributing
 
 - **Never commit directly to `main`** — open a PR at the end of each day
