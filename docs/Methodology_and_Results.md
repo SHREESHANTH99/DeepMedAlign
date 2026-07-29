@@ -177,3 +177,42 @@ The dashboard box plots shown below confirm that **VoxelMorph v2** consistently 
 ---
 
 Overall, this project demonstrates that replacing traditional optimization-based registration with a deep learning framework provides significant improvements in both registration accuracy and computational efficiency. By combining a **3D U-Net architecture**, a differentiable **Spatial Transformer Network**, and a **multi-component loss function** based on Mutual Information, Soft Dice supervision, smoothness regularization, and Jacobian penalties, the proposed framework delivers robust, accurate, and clinically practical MRI–CT deformable image registration. The final **VoxelMorph v2** model achieved a **Dice score of 0.9953**, an **HD95 of 0.00 mm**, and an inference time of **approximately 50 ms on an NVIDIA T4 GPU**, representing a **3,600× speedup** over the classical B-Spline registration pipeline while maintaining anatomically realistic deformations.
+
+---
+
+## Limitations & Future Work
+
+### Current Limitations
+
+**1. Single Anatomy (Brain Only)**
+The current model was trained and evaluated exclusively on brain MRI-CT pairs from the SynthRAD2023 dataset. It cannot be directly applied to other anatomies (e.g., pelvis, thorax) without retraining on domain-specific data.
+
+**2. Dataset Size**
+180 training subjects is relatively small for a medical deep learning model. Larger, more diverse multi-site datasets would improve the model's robustness across different scanner brands, acquisition protocols, and patient demographics.
+
+**3. No Pathology Handling**
+The model assumes normal brain anatomy. Patients with large tumors, resection cavities, or significant edema may produce atypical deformation fields not well represented in training.
+
+**4. No Clinical Validation**
+The evaluation metrics (Dice, HD95) measure overlap accuracy but do not constitute clinical validation. A prospective study with radiologist review would be required before deployment in a real hospital workflow.
+
+### Future Work
+
+**1. Multi-Anatomy Extension**
+Retrain on SynthRAD2023 pelvis and thorax datasets to build a general-purpose whole-body registration framework.
+
+**2. Interactive Web Dashboard (FastAPI + Next.js)**
+Build a production-grade web application with drag-and-drop NIfTI upload, interactive 3D crosshair slice viewer, and automated PDF clinical report generation — enabling real-time use by radiologists directly in the browser.
+
+**3. Uncertainty Estimation**
+Integrate Monte Carlo Dropout or deep ensembles to provide per-voxel confidence maps alongside the registration output, alerting clinicians to anatomical regions where alignment confidence is lower.
+
+**4. DICOM Integration**
+Extend the preprocessing pipeline to accept raw DICOM files directly from hospital PACS systems, removing the requirement for manual NIfTI conversion.
+
+---
+
+## 8. Reproducibility
+
+All code, training scripts, evaluation pipelines, and generated figures are publicly available at:
+github.com/vivektirumalasetty/DeepMedAlign
