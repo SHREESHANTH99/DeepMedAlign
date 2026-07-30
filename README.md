@@ -70,6 +70,17 @@ Evaluated on **36 unseen test subjects** from the [SynthRad 2023](https://synthr
 
 > **Target:** Dice > 0.776 · HD95 < 19.2 mm · Inference in milliseconds
 
+### ⚡ Why VoxelMorph is 3,600x Faster than Classical B-spline
+
+| Approach | Execution Strategy | Computations | Time |
+|:---|:---|:---|:---|
+| **Classical B-spline** | ~1,000 Iterative Loops on CPU | 1,000 × 4.9M voxels = **4.9 Billion calculations** | **~3 min (180s)** |
+| **VoxelMorph v2 (ours)** | 1 Forward Pass on GPU CUDA Cores | 1 × 4.9M voxels (Parallel Matrix Multiplication) | **0.05 sec (50ms)** |
+
+**Why the massive speedup?**
+1. **No Trial-and-Error:** Classical algorithms start from scratch for every new patient, iteratively evaluating Mutual Information 1,000 times. VoxelMorph leverages learned priors from 24 hours of training to predict the 3D deformation field in a **single forward pass**.
+2. **GPU Parallelization:** Modern GPUs compute matrix transformations across all 4.9 million voxels simultaneously using thousands of CUDA cores, eliminating the CPU sequential processing bottleneck.
+
 ### 📸 Visual Results & Quality Control
 
 #### Anatomical Alignment (Patient 1BA116 — MRI vs Warped CT vs Difference Heatmap)
