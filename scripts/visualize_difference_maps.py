@@ -209,10 +209,17 @@ def save_diff_visualization(
         mr_n = _norm_display(mr_sl)
         ct_n = _norm_display(ct_sl)
 
+        # Mask background air (where MRI is near zero) to black
+        bg_mask = (mr_sl < 0.02)
+        diff_masked = np.ma.masked_where(bg_mask, diff_sl)
+
+        cmap = plt.cm.hot.copy()
+        cmap.set_bad(color="#0A0A0A")  # Background air matches figure background (pitch black)
+
         axes[row, 0].imshow(mr_n.T,   cmap="gray", origin="lower", aspect="equal")
         axes[row, 1].imshow(ct_n.T,   cmap="gray", origin="lower", aspect="equal")
         last_im = axes[row, 2].imshow(
-            diff_sl.T, cmap="hot", origin="lower",
+            diff_masked.T, cmap=cmap, origin="lower",
             aspect="equal", vmin=0, vmax=3.0,
         )
 
@@ -227,9 +234,10 @@ def save_diff_visualization(
             for spine in axes[row, col].spines.values():
                 spine.set_edgecolor("#333333")
 
-    # Colorbar on the difference column
+    # Colorbar on a dedicated axis so column 3 is not squeezed
     if last_im is not None:
-        cbar = fig.colorbar(last_im, ax=axes[:, 2], shrink=0.7, pad=0.02)
+        cax = fig.add_axes([0.92, 0.25, 0.015, 0.5])
+        cbar = fig.colorbar(last_im, cax=cax)
         cbar.set_label("Std deviations from typical diff",
                        color="white", fontsize=9)
         cbar.ax.yaxis.set_tick_params(color="white")
