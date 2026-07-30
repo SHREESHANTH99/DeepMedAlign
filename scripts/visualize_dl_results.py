@@ -155,7 +155,8 @@ def generate_figure(mr: np.ndarray, ct_warped: np.ndarray,
                 spine.set_edgecolor("#333333")
 
     if last_im is not None:
-        cbar = fig.colorbar(last_im, ax=axes[:, 2], shrink=0.6, pad=0.03)
+        cax = fig.add_axes([0.92, 0.25, 0.015, 0.5])
+        cbar = fig.colorbar(last_im, cax=cax)
         cbar.set_label("Normalised absolute difference", color="white", fontsize=9)
         cbar.ax.yaxis.set_tick_params(color="white")
         plt.setp(plt.getp(cbar.ax.axes, "yticklabels"), color="white")
