@@ -280,15 +280,15 @@ The model converged after **134 training epochs**. The training loss curve exhib
 
 The quantitative comparison, training behavior, and qualitative registration quality are illustrated below.
 
-![Methods Comparison](../../results/figures/methods_comparison.png)
+![Methods Comparison](../results/figures/methods_comparison.png)
 
 *Figure 1. Quantitative comparison of the classical B-Spline pipeline, VoxelMorph v1, and the proposed VoxelMorph v2.*
 
-![Training Dashboard](../../results/figures/training_dashboard.png)
+![Training Dashboard](../results/figures/training_dashboard.png)
 
 *Figure 2. Training dashboard showing convergence over 134 epochs and the warm restart at epoch 100.*
 
-![Difference Map](../../results/figures/voxelmorph_diffmap.png)
+![Difference Map](../results/figures/voxelmorph_diffmap.png)
 
 *Figure 3. Difference map illustrating the high-quality anatomical alignment achieved by the proposed VoxelMorph v2 model.*
 
@@ -335,7 +335,7 @@ To validate the registration framework across the entire dataset rather than onl
 
 The dashboard box plots shown below confirm that **VoxelMorph v2** consistently achieves near-perfect anatomical overlap across all **36 unseen test subjects**, while exhibiting essentially zero variation in HD95. These results demonstrate that the proposed model generalizes robustly to previously unseen patient anatomy and produces stable registration performance across the dataset.
 
-![QC Dashboard](../../results/figures/qc_dashboard.png)
+![QC Dashboard](../results/figures/qc_dashboard.png)
 
 *Figure 4. Registration Quality Control Dashboard comparing Rigid, Affine, B-Spline, and VoxelMorph v2 across Dice Score, HD95, and difference-map mean error per subject.*
 
