@@ -176,6 +176,32 @@ The dashboard box plots shown below confirm that **VoxelMorph v2** consistently 
 
 ---
 
+### 5c. Computational Efficiency: Single Forward Pass vs Iterative Optimization
+
+A critical contribution of DeepMedAlign is reducing 3D deformable registration time from minutes to milliseconds without sacrificing sub-voxel accuracy.
+
+#### The Classical Bottleneck (Iterative CPU Optimization)
+
+Classical registration algorithms (such as SimpleElastix B-spline) operate with zero prior knowledge of human brain anatomy. For every new patient, the algorithm solves an unconstrained optimization problem from scratch:
+
+1. It initializes an empty deformation grid.
+2. It evaluates Mutual Information across all **160 × 192 × 160 = 4,915,200 voxels**.
+3. It updates displacement parameters via gradient descent and repeats this loop for 500–1,000 iterations on CPU.
+
+Performing 4.9 million voxel calculations across 1,000 sequential iterations yields approximately **4.9 billion operations per patient**, taking **~180 seconds (~3 minutes)**.
+
+#### The VoxelMorph Breakthrough (Single Pass + GPU Parallelism)
+
+VoxelMorph bypasses iterative optimization entirely:
+
+1. **Offline Learned Priors:** The computational burden is shifted offline to the training phase (24 hours on Kaggle T4 GPU). The 3D U-Net learns non-linear spatial mapping rules across 125 training subjects.
+2. **Single Forward Pass:** During inference, the network takes the MRI-CT pair and outputs the 3D Displacement Vector Field (DVF) in a single feedforward evaluation.
+3. **Massive CUDA Parallelism:** The Spatial Transformer Network (STN) warps all 4.9 million voxels simultaneously on GPU CUDA cores via parallel bilinear interpolation (`torch.nn.functional.grid_sample`).
+
+As a result, inference requires only **~50 milliseconds on GPU** (~5 seconds end-to-end including web upload and NIfTI I/O), achieving a **3,600× speedup** over classical B-spline.
+
+---
+
 Overall, this project demonstrates that replacing traditional optimization-based registration with a deep learning framework provides significant improvements in both registration accuracy and computational efficiency. By combining a **3D U-Net architecture**, a differentiable **Spatial Transformer Network**, and a **multi-component loss function** based on Mutual Information, Soft Dice supervision, smoothness regularization, and Jacobian penalties, the proposed framework delivers robust, accurate, and clinically practical MRI–CT deformable image registration. The final **VoxelMorph v2** model achieved a **Dice score of 0.9953**, an **HD95 of 0.00 mm**, and an inference time of **approximately 50 ms on an NVIDIA T4 GPU**, representing a **3,600× speedup** over the classical B-Spline registration pipeline while maintaining anatomically realistic deformations.
 
 ---
