@@ -220,6 +220,41 @@ The quantitative comparison, training behavior, and qualitative registration qua
 
 ---
 
+### 5a. Mathematical Definitions of Evaluation Metrics
+
+To quantitatively benchmark registration accuracy and spatial plausibility, we evaluated all models using three standard clinical metrics:
+
+#### 1. Dice Similarity Coefficient (DSC)
+
+Measures the 3D volumetric spatial overlap between the Fixed MRI brain mask ($A$) and the Warped CT brain mask ($B$):
+
+$$
+\text{Dice}(A, B) = \frac{2 \cdot |A \cap B|}{|A| + |B|}
+$$
+
+Where $\text{Dice} = 1.0$ indicates perfect spatial overlap, and $\text{Dice} = 0.0$ indicates zero overlap.
+
+#### 2. Hausdorff Distance 95th Percentile (HD95)
+
+Measures the maximum boundary distance between the outer surface boundaries of the MRI mask ($X$) and CT mask ($Y$), discarding the top 5% of extreme surface outliers:
+
+$$
+d_{\text{HD95}}(X, Y) = P_{95} \left( \max \left( \sup_{x \in X} \inf_{y \in Y} \|x - y\|_2,\; \sup_{y \in Y} \inf_{x \in X} \|y - x\|_2 \right) \right)
+$$
+
+Reported in millimeters ($\text{mm}$). Lower values indicate tighter anatomical surface alignment.
+
+#### 3. Negative Jacobian Determinant Percentage ($\text{Jac}_{\text{neg}}\%$)
+
+Quantifies tissue folding and singularity in the predicted 3D Displacement Vector Field ($\phi$):
+
+$$
+\text{Jac}_{\text{neg}}\% = \frac{1}{N} \sum_{x} \mathbb{I}\left(\det(J_{\phi}(x)) \le 0\right) \times 100\%
+$$
+
+Where $J_{\phi}(x) = \nabla \phi(x)$ is the spatial Jacobian matrix at voxel $x$. A value near $0\%$ guarantees a smooth, non-folding, diffeomorphic deformation.
+
+---
 ### 5b. Quality Control Dashboard
 
 To validate the registration framework across the entire dataset rather than only the held-out test set, we developed an automated **Quality Control (QC) dashboard**. The dashboard aggregates **Dice scores**, **HD95 values**, and **difference-map statistics** for the **Rigid**, **Affine**, **B-Spline**, and **VoxelMorph v2** registration methods into a single visual report, enabling rapid comparison of registration quality across all patients.
