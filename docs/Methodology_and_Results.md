@@ -92,6 +92,38 @@ Before any registration algorithm — classical or deep learning — can be trai
 
 Together, these four preprocessing stages take heterogeneous, raw hospital data and transform it into a clean, consistent, and directly comparable set of MRI-CT volume pairs — the foundation on which both the classical baseline and the deep learning model depend.
 
+```mermaid
+flowchart TD
+    subgraph RAW["🏥 Raw Input Scans"]
+        CT_RAW["Raw CT Volume\n(Hounsfield Units)"]
+        MR_RAW["Raw MRI T1 Volume\n(Soft-tissue intensities)"]
+    end
+
+    subgraph GEOM["📐 Geometry Standardisation"]
+        RAS["Reorient to RAS+ Coordinate System\n(SimpleITK)"]
+        ISO["Isotropic Resampling to 1.0mm × 1.0mm × 1.0mm\n(Grid: 160 × 192 × 160 voxels)"]
+    end
+
+    subgraph INTENSITY["🎨 Intensity Standardisation"]
+        WIN["CT Brain Windowing\n(Clip -15 to +80 HU)"]
+        NORM["Min-Max Intensity Normalisation\n(Scale to [0.0, 1.0])"]
+    end
+
+    subgraph CACHE["⚡ Fast I/O Caching"]
+        NPY["Save to Binary NumPy (.npy)\n(Load time: 2.0s → 0.01s per sample)"]
+    end
+
+    CT_RAW --> RAS
+    MR_RAW --> RAS
+    RAS --> ISO --> WIN --> NORM --> NPY
+
+    style RAW fill:#1e3a5f,color:#fff,stroke:#4a90d9
+    style GEOM fill:#2d5016,color:#fff,stroke:#6abf40
+    style INTENSITY fill:#5a2d7a,color:#fff,stroke:#b06ad4
+    style CACHE fill:#5a1a1a,color:#fff,stroke:#e05252
+```
+*Figure 1. End-to-End Data Preprocessing & NPY Caching Pipeline.*
+
 ---
 
 ### The Classical Baselines (R2)
@@ -123,6 +155,48 @@ Our implementation is based on **VoxelMorph**, a deep learning framework specifi
 Rather than directly generating a registered image, the network predicts a dense **3D Displacement Vector Field (DVF)**. Each vector specifies how an individual voxel in the moving CT image should be displaced to align with the corresponding anatomical location in the fixed MRI image.
 
 The predicted displacement field is applied using a differentiable **Spatial Transformer Network (STN)** implemented with PyTorch's `grid_sample` operation. The STN warps the moving CT volume according to the predicted DVF entirely on the GPU. Since the warping operation is fully differentiable, gradients can propagate through it during training, allowing the complete registration framework to be optimized end-to-end. **The network is trained in an unsupervised manner, meaning it does not require ground-truth deformation fields and instead learns by minimizing the registration loss between the fixed MRI and the warped CT image.**
+
+```mermaid
+flowchart TD
+    subgraph IN["Input Pair"]
+        MR["Fixed MRI (1×160×192×160)"]
+        CT["Moving CT (1×160×192×160)"]
+    end
+
+    subgraph UNET["3D VoxelMorph U-Net"]
+        CONCAT["Channel Concat (2×160×192×160)"]
+        ENC["3D Encoder (16 → 32 → 32 → 32)"]
+        DEC["3D Decoder (32 → 32 → 32 → 16)"]
+        VECINT["VecInt Diffeomorphic Integration\n(Scaling & Squaring, 7 steps)"]
+    end
+
+    subgraph STN["GPU Spatial Transformer"]
+        DVF["3D Deformation Field (3×160×192×160)"]
+        WARP["grid_sample (Bilinear Interpolation)"]
+        WARPED_CT["Registered Warped CT"]
+    end
+
+    subgraph LOSSES["Multi-Component Loss Function"]
+        L_MI["Mutual Information Loss\n(Parzen-window, σ=0.1)"]
+        L_DICE["Soft Dice Mask Loss\n(λ = 1.0)"]
+        L_JAC["Jacobian Folding Penalty\n(λ = 0.5)"]
+        L_SMOOTH["Gradient Smoothness L2\n(λ = 0.2)"]
+    end
+
+    MR & CT --> CONCAT --> ENC --> DEC --> VECINT --> DVF
+    CT & DVF --> WARP --> WARPED_CT
+    
+    WARPED_CT & MR --> L_MI
+    WARPED_CT & MR --> L_DICE
+    DVF --> L_JAC
+    DVF --> L_SMOOTH
+
+    style IN fill:#1e3a5f,color:#fff,stroke:#4a90d9
+    style UNET fill:#5a2d7a,color:#fff,stroke:#b06ad4
+    style STN fill:#1a3a5f,color:#fff,stroke:#4a90d9
+    style LOSSES fill:#1a3a1a,color:#7fff7f,stroke:#4caf50
+```
+*Figure 2. Complete VoxelMorph v2 Deep Learning & Loss Optimization Architecture.*
 
 ---
 
