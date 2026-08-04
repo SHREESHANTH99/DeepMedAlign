@@ -213,12 +213,17 @@ def main() -> None:
 
     # Generate figure
     patient_id = Path(args.mri).name.split("_")[0]
-    generate_figure(mr, ct, warped_np, args.out, patient_id=patient_id)
+    out_path = args.out
+    # If using the default static out path, make it dynamic so it doesn't overwrite
+    if out_path == "results/figures/voxelmorph_diffmap.png":
+        out_path = f"results/figures/voxelmorph_diffmap_{patient_id}.png"
+
+    generate_figure(mr, ct, warped_np, out_path, patient_id=patient_id)
 
     print(f"\n{'=' * 55}")
     print(f"  Patient    : {patient_id}")
     print(f"  Dice Score : {dice:.4f}")
-    print(f"  Output PNG : {args.out}")
+    print(f"  Output PNG : {out_path}")
     print(f"{'=' * 55}")
     print(f"\nDone! Commit {args.out} and push to GitHub.")
 
