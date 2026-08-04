@@ -35,6 +35,8 @@ from src.metrics           import (
     hausdorff95,
     jacobian_stats,
     normalised_cross_correlation,
+    normalized_mutual_info,
+    structural_sim,
 )
 from src.utils             import get_logger
 
@@ -82,11 +84,13 @@ def _print_summary(rows: list, label: str):
         ("hd95",        "mm",  True),
         ("jac_neg_pct", "%",   True),
         ("ncc",         "",    False),
+        ("nmi",         "",    False),
+        ("ssim",        "",    False),
     ]:
         if col not in df.columns:
             continue
         vals = df[col].dropna()
-        tag  = "" if primary else "  [secondary / sanity check -- cross-modality NCC]"
+        tag  = "" if primary else "  [secondary / sanity check -- cross-modality]"
         print(f"  {col:<14}: {vals.mean():.4f} +- {vals.std():.4f} {unit}{tag}")
     print()
 
@@ -170,19 +174,24 @@ def evaluate(args):
             hd95   = hausdorff95(mr_mask_np, warped_ct_mask_np, voxel_size=1.0)
             jstats = jacobian_stats(dvf_np)
             ncc    = normalised_cross_correlation(mr_np, warped_ct_np, mask=mr_mask_np)
+            nmi    = normalized_mutual_info(mr_np, warped_ct_np, mask=mr_mask_np)
+            ssim   = structural_sim(mr_np, warped_ct_np)
 
             row = {
                 "subject_id":  subject_id,
                 "dice":        round(dice, 4),
                 "hd95":        round(hd95, 3),
                 "ncc":         round(ncc,  4),    # secondary / sanity check
+                "nmi":         round(nmi,  4),    # secondary / sanity check
+                "ssim":        round(ssim, 4),    # secondary / sanity check
                 **{k: round(v, 4) for k, v in jstats.items()},
             }
             rows.append(row)
             log.info(
                 f"[{i+1:03d}/{len(test_loader.dataset)}] {subject_id} | "
                 f"dice={dice:.4f}  hd95={hd95:.2f}mm  "
-                f"jac_neg%={jstats['jac_neg_pct']:.2f}  ncc={ncc:.4f}[secondary]"
+                f"jac_neg%={jstats['jac_neg_pct']:.2f}  "
+                f"ncc={ncc:.4f}  nmi={nmi:.4f}  ssim={ssim:.4f}  [secondary]"
             )
 
     n_total = len(test_loader.dataset)
