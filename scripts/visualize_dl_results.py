@@ -106,28 +106,29 @@ def _norm_display(arr: np.ndarray) -> np.ndarray:
 # Figure generator  (3 planes × 3 columns: MRI | warped CT | difference)
 # ---------------------------------------------------------------------------
 
-def generate_figure(mr: np.ndarray, ct_warped: np.ndarray,
+def generate_figure(mr: np.ndarray, ct_original: np.ndarray, ct_warped: np.ndarray,
                     out_path: str, patient_id: str = "") -> None:
     diff = np.abs(mr - ct_warped)
 
     d, h, w = mr.shape
     planes = [
-        ("Axial",    mr[d // 2, :, :], ct_warped[d // 2, :, :], diff[d // 2, :, :]),
-        ("Coronal",  mr[:, h // 2, :], ct_warped[:, h // 2, :], diff[:, h // 2, :]),
-        ("Sagittal", mr[:, :, w // 2], ct_warped[:, :, w // 2], diff[:, :, w // 2]),
+        ("Axial",    mr[d // 2, :, :], ct_original[d // 2, :, :], ct_warped[d // 2, :, :], diff[d // 2, :, :]),
+        ("Coronal",  mr[:, h // 2, :], ct_original[:, h // 2, :], ct_warped[:, h // 2, :], diff[:, h // 2, :]),
+        ("Sagittal", mr[:, :, w // 2], ct_original[:, :, w // 2], ct_warped[:, :, w // 2], diff[:, :, w // 2]),
     ]
 
-    fig, axes = plt.subplots(3, 3, figsize=(18, 16), facecolor="#0A0A0A")
+    fig, axes = plt.subplots(3, 4, figsize=(22, 16), facecolor="#0A0A0A")
     title = "DeepMedAlign — VoxelMorph v2 Registration"
     if patient_id:
         title += f"  |  Patient: {patient_id}"
     fig.suptitle(title, color="white", fontsize=14, y=0.99, fontweight="bold")
-    col_titles = ["MRI (fixed)", "CT warped by VoxelMorph v2", "Difference (|MRI − CT|)"]
+    col_titles = ["MRI (Fixed Target)", "Original CT (Moving)", "Registered CT (Warped)", "Difference (|MRI − Warped CT|)"]
 
     last_im = None
-    for row, (plane, mr_sl, ct_sl, diff_sl) in enumerate(planes):
+    for row, (plane, mr_sl, ct_orig_sl, ct_warp_sl, diff_sl) in enumerate(planes):
         mr_n   = _norm_display(mr_sl)
-        ct_n   = _norm_display(ct_sl)
+        ct_orig_n = _norm_display(ct_orig_sl)
+        ct_warp_n = _norm_display(ct_warp_sl)
         dmax   = diff_sl.max() if diff_sl.max() > 0 else 1.0
         diff_n = diff_sl / dmax
 
@@ -139,8 +140,9 @@ def generate_figure(mr: np.ndarray, ct_warped: np.ndarray,
         cmap.set_bad(color="#0A0A0A")  # Background air matches figure background (pitch black)
 
         axes[row, 0].imshow(mr_n.T,   cmap="gray", origin="lower", aspect="equal")
-        axes[row, 1].imshow(ct_n.T,   cmap="gray", origin="lower", aspect="equal")
-        last_im = axes[row, 2].imshow(
+        axes[row, 1].imshow(ct_orig_n.T, cmap="gray", origin="lower", aspect="equal")
+        axes[row, 2].imshow(ct_warp_n.T, cmap="gray", origin="lower", aspect="equal")
+        last_im = axes[row, 3].imshow(
             diff_masked.T, cmap=cmap, origin="lower", aspect="equal", vmin=0, vmax=1,
         )
 
@@ -149,7 +151,7 @@ def generate_figure(mr: np.ndarray, ct_warped: np.ndarray,
                 axes[row, col].set_title(col_title, color="white", fontsize=11, pad=8)
         axes[row, 0].set_ylabel(plane, color="white", fontsize=10)
 
-        for col in range(3):
+        for col in range(4):
             axes[row, col].tick_params(colors="white", labelsize=0, length=0)
             for spine in axes[row, col].spines.values():
                 spine.set_edgecolor("#333333")
@@ -211,7 +213,7 @@ def main() -> None:
 
     # Generate figure
     patient_id = Path(args.mri).name.split("_")[0]
-    generate_figure(mr, warped_np, args.out, patient_id=patient_id)
+    generate_figure(mr, ct, warped_np, args.out, patient_id=patient_id)
 
     print(f"\n{'=' * 55}")
     print(f"  Patient    : {patient_id}")
