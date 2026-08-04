@@ -25,6 +25,8 @@ Important notes
 
 import numpy as np
 from scipy.ndimage import distance_transform_edt
+from skimage.metrics import normalized_mutual_information as sk_nmi
+from skimage.metrics import structural_similarity as sk_ssim
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +135,57 @@ def normalised_cross_correlation(
     b = b - b.mean()
     denom = np.sqrt((a ** 2).sum() * (b ** 2).sum()) + 1e-8
     return float((a * b).sum() / denom)
+
+
+# ---------------------------------------------------------------------------
+# Normalized Mutual Information (NMI)
+# ---------------------------------------------------------------------------
+
+def normalized_mutual_info(
+    img_a: np.ndarray,
+    img_b: np.ndarray,
+    mask:  np.ndarray = None,
+) -> float:
+    """Normalized Mutual Information between two intensity volumes.
+    
+    Excellent metric for multi-modal registration (MRI to CT).
+    """
+    if mask is not None:
+        a = img_a[mask.astype(bool)]
+        b = img_b[mask.astype(bool)]
+    else:
+        a = img_a
+        b = img_b
+        
+    if a.size == 0 or b.size == 0:
+        return 0.0
+        
+    return float(sk_nmi(a, b))
+
+
+# ---------------------------------------------------------------------------
+# Structural Similarity Index Measure (SSIM)
+# ---------------------------------------------------------------------------
+
+def structural_sim(
+    img_a: np.ndarray,
+    img_b: np.ndarray,
+    mask:  np.ndarray = None,
+) -> float:
+    """Structural Similarity Index between two intensity volumes.
+    
+    WARNING: Like NCC, this is designed for single-modality images.
+    Expect low scores for MRI vs CT.
+    """
+    # Crop to bounding box of the mask for faster 3D computation if possible
+    # But for simplicity, we just run it on the whole volume with the mask supplied
+    # scikit-image ssim requires the full image, it does not take a boolean mask easily
+    # so we compute it on the whole image.
+    try:
+        score = sk_ssim(img_a, img_b, data_range=1.0)
+        return float(score)
+    except Exception:
+        return 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -253,13 +306,21 @@ def compute_all_metrics(
         result["dice"] = None
         result["hd95"] = None
 
-    # --- NCC inside brain mask ---
+    # --- NCC, NMI, SSIM inside brain mask ---
     try:
-        result["ncc"] = round(
-            normalised_cross_correlation(mr_arr, ct_arr, mr_mask), 4
-        )
+        result["ncc"] = round(normalised_cross_correlation(mr_arr, ct_arr, mr_mask), 4)
     except Exception:
         result["ncc"] = None
+
+    try:
+        result["nmi"] = round(normalized_mutual_info(mr_arr, ct_arr, mr_mask), 4)
+    except Exception:
+        result["nmi"] = None
+        
+    try:
+        result["ssim"] = round(structural_sim(mr_arr, ct_arr), 4)
+    except Exception:
+        result["ssim"] = None
 
     # --- Intensity stats of warped CT inside MRI brain mask ---
     try:

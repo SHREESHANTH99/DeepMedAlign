@@ -1,7 +1,6 @@
 # DeepMedAlign: Automated Multi-Modal Deformable Image Registration
 
 **Project Status:** 100% Complete  
-**Authors:** [Your Name / Team Names]  
 
 ## Abstract
 Radiation therapy planning strictly requires the alignment of Magnetic Resonance Imaging (MRI) and Computed Tomography (CT) scans to leverage both high soft-tissue contrast and accurate electron density calculations. We present DeepMedAlign, an automated, deep-learning-based framework for deformable multi-modal image registration. Using a dataset of 60GB of hospital-grade imaging data from SynthRAD2023, we replaced traditional iterative mathematical solvers with a 3D U-Net architecture (VoxelMorph) combined with a Spatial Transformer Network (STN). To overcome the cross-modality intensity gap, the network is optimized using the Modality Independent Neighbourhood Descriptor (MIND) and Self-Similarity Context (SSC) loss. Our framework reduces inference time from several minutes to under one second per patient while achieving state-of-the-art accuracy: a Dice Similarity Coefficient of 0.96 and a Hausdorff Distance (HD95) of 1.2 mm.
