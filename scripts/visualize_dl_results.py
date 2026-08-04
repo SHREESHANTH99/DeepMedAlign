@@ -131,10 +131,17 @@ def generate_figure(mr: np.ndarray, ct_warped: np.ndarray,
         dmax   = diff_sl.max() if diff_sl.max() > 0 else 1.0
         diff_n = diff_sl / dmax
 
+        # Mask background air (where MRI is near zero) to black
+        bg_mask = (mr_sl < 0.02)
+        diff_masked = np.ma.masked_where(bg_mask, diff_n)
+        
+        cmap = plt.cm.hot.copy()
+        cmap.set_bad(color="#0A0A0A")  # Background air matches figure background (pitch black)
+
         axes[row, 0].imshow(mr_n.T,   cmap="gray", origin="lower", aspect="equal")
         axes[row, 1].imshow(ct_n.T,   cmap="gray", origin="lower", aspect="equal")
         last_im = axes[row, 2].imshow(
-            diff_n.T, cmap="hot", origin="lower", aspect="equal", vmin=0, vmax=1,
+            diff_masked.T, cmap=cmap, origin="lower", aspect="equal", vmin=0, vmax=1,
         )
 
         if row == 0:
@@ -148,7 +155,8 @@ def generate_figure(mr: np.ndarray, ct_warped: np.ndarray,
                 spine.set_edgecolor("#333333")
 
     if last_im is not None:
-        cbar = fig.colorbar(last_im, ax=axes[:, 2], shrink=0.6, pad=0.03)
+        cax = fig.add_axes([0.92, 0.25, 0.015, 0.5])
+        cbar = fig.colorbar(last_im, cax=cax)
         cbar.set_label("Normalised absolute difference", color="white", fontsize=9)
         cbar.ax.yaxis.set_tick_params(color="white")
         plt.setp(plt.getp(cbar.ax.axes, "yticklabels"), color="white")

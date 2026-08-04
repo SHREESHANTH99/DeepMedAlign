@@ -35,3 +35,6 @@ source-code
 deepmedalign-data-preprocessed
 *.zip
 source-files
+*.pdf
+docs/*.pdf
+scripts/generate_project_report_pdf.py
